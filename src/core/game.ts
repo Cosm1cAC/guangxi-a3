@@ -27,7 +27,11 @@ export const beats=(a:Card[],b:Card[])=>{const x=classify(a),y=classify(b);retur
 
 // A tribute transfer: `from` hands `card` (face down) to `to`; `to` later returns `back`.
 export type Transfer={from:number;to:number;card:Card;back:Card|null};
-export type Tribute={transfers:Transfer[];exempt:string|null};
+export type RpsMove='rock'|'paper'|'scissors';
+export type TributeSelection={quotas:Record<number,number>;choices:Record<number,number[]>;locked:number[];duel:{id:number;players:number[];moves:Record<number,RpsMove>;round:number}|null};
+export type TributeContest={players:number[];moves:RpsMove[];winner:number|null;round:number};
+export type Tribute={transfers:Transfer[];exempt:string|null;selection?:TributeSelection|null;contests?:TributeContest[]};
+export type TributeAction={kind:'select';cards:number[]}|{kind:'rps-start';opponent:number}|{kind:'rps';move:RpsMove;round:number;duelId:number}|{kind:'return';card:Card};
 export type Game={hands:Card[][];teams:number[];revealed:number[];turn:number;first:boolean;last:{seat:number;cards:Card[]}|null;passes:number;order:number[];finishedNaturally:number[];status:'tribute'|'playing'|'finished';scores:number[];log:string[];version:number;round?:number;totals?:number[];tribute?:Tribute|null};
 export type Result={ok:true;state:Game}|{ok:false;error:string};
 export function createGame(random:()=>number=Math.random):Game{
@@ -86,12 +90,18 @@ export function movesFor(hand:Card[],last:Card[]|null,first:boolean):Card[][]{
 export function legalMoves(g:Game,seat:number){return g.status==='playing'&&g.turn===seat?movesFor(g.hands[seat],g.last?.cards||null,g.first):[];}
 export function view(g:Game,seat:number){
   const mine=(t:Transfer)=>t.from===seat||t.to===seat;
-  const tribute=g.tribute?{exempt:g.tribute.exempt,transfers:g.tribute.transfers.map(t=>({from:t.from,to:t.to,card:mine(t)?t.card:null,returned:!!t.back,back:mine(t)?t.back:null}))}:null;
-  return {round:g.round||1,totals:g.totals||[0,0,0,0],tribute,pendingReturns:g.status==='tribute'?(g.tribute?.transfers.filter(t=>t.to===seat&&!t.back).length||0):0,seat,hand:g.hands[seat],players:g.hands.map((h,i)=>({seat:i,count:h.length,identity:g.status==='finished'?(g.teams[i]?'A3方':'农民方'):g.revealed[i]===2?'独食':g.revealed[i]?'A3方':'身份未明',rank:g.order.includes(i)?g.order.indexOf(i)+1:null,supplemented:g.order.includes(i)&&!g.finishedNaturally.includes(i)})),ownIdentity:g.teams[seat]?(g.teams.filter(t=>t===1).length===1?'独食':'A3方'):'农民方',turn:g.turn,first:g.first,last:g.last,status:g.status,scores:g.scores,log:g.log,version:g.version};}
+  const selecting=g.tribute?.selection;
+  const selection=selecting?{quotas:{...selecting.quotas},choices:JSON.parse(JSON.stringify(selecting.choices)) as Record<number,number[]>,locked:[...selecting.locked],duel:selecting.duel?{id:selecting.duel.id,players:[...selecting.duel.players],round:selecting.duel.round,submitted:Object.keys(selecting.duel.moves).map(Number),ownMove:selecting.duel.moves[seat]||null}:null}:null;
+  const tribute=g.tribute?{exempt:g.tribute.exempt,selection,contests:JSON.parse(JSON.stringify(g.tribute.contests||[])) as TributeContest[],transfers:g.tribute.transfers.map(t=>({from:t.from,to:t.to,card:mine(t)||!!selecting?.quotas[seat]?t.card:null,returned:!!t.back,back:mine(t)?t.back:null}))}:null;
+  const identity=(s:number)=>g.teams[s]?(g.teams.filter(t=>t===1).length===1?'独食':'A3方'):'农民方';
+  return {round:g.round||1,totals:g.totals||[0,0,0,0],tribute,pendingReturns:g.status==='tribute'&&!selecting?(g.tribute?.transfers.filter(t=>t.to===seat&&!t.back).length||0):0,seat,hand:g.hands[seat],players:g.hands.map((h,i)=>({seat:i,count:h.length,identity:g.status==='finished'?identity(i):g.revealed[i]===2?'独食':g.revealed[i]?'A3方':'身份未明',rank:g.order.includes(i)?g.order.indexOf(i)+1:null,supplemented:g.order.includes(i)&&!g.finishedNaturally.includes(i)})),ownIdentity:identity(seat),turn:g.turn,first:g.first,last:g.last,status:g.status,scores:g.scores,log:g.log,version:g.version};}
 export type GameView=ReturnType<typeof view>;
 
 // ---------------- 进贡 / 还贡 (rules §10, recommended fixed rules §17) ----------------
 export const isIdentity=(c:Card)=>c.suit===3&&(c.rank===14||c.rank===3);
+/** ♦4 stays with its holder during returns so the opening seat cannot change. */
+export const isOpeningCard=(c:Card)=>c.rank===4&&c.suit===0;
+export const canReturnTribute=(c:Card)=>!isIdentity(c)&&!isOpeningCard(c);
 /** Who pays whom, from the finished previous game. */
 export function tributePlan(prev:Game):{from:number;to:number}[]{
   if(prev.status!=='finished')return [];
@@ -111,20 +121,31 @@ export function createNextGame(prev:Game,random:()=>number=Math.random):Game{
   const plan=tributePlan(prev);
   if(!plan.length){g.tribute=null;g.log.push(prev.status==='finished'?'上局平局 · 不进贡':'不进贡','♦4 先出');return g;}
   const transfers:Transfer[]=[];
+  const quotas:Record<number,number>={};
+  for(const p of plan)quotas[p.to]=(quotas[p.to]||0)+1;
+  const selecting=Object.keys(quotas).length>1;
   for(const p of plan){
     const card=tributeCard(g.hands[p.from]);
-    g.hands[p.from]=g.hands[p.from].filter(c=>id(c)!==id(card));g.hands[p.to]=sort([...g.hands[p.to],card]);
-    transfers.push({from:p.from,to:p.to,card,back:null});g.log.push(`${p.from}号位 → ${p.to}号位 · 进贡一张`);
+    g.hands[p.from]=g.hands[p.from].filter(c=>id(c)!==id(card));
+    if(!selecting)g.hands[p.to]=sort([...g.hands[p.to],card]);
+    transfers.push({from:p.from,to:selecting?-1:p.to,card,back:null});
   }
-  g.tribute={transfers,exempt:null};g.status='tribute';g.turn=-1;
+  for(const [i,p] of plan.entries()){
+    if(plan.findIndex(t=>t.from===p.from&&t.to===p.to)!==i)continue;
+    const count=plan.filter(t=>t.from===p.from&&t.to===p.to).length;
+    g.log.push(`${p.from}号位 · ${count===2?'大贡':'小贡'} ${count} 张${selecting?'放入贡牌池':` → ${p.to}号位`}`);
+  }
+  g.tribute={transfers,exempt:null,selection:selecting?{quotas,choices:{},locked:[],duel:null}:null,contests:[]};g.status='tribute';g.turn=-1;
   return g;
 }
 export function returnTribute(source:Game,seat:number,card:Card):Result{
   if(source.status!=='tribute'||!source.tribute)return {ok:false,error:'现在不是还贡环节'};
+  if(source.tribute.selection)return {ok:false,error:'请先完成贡牌预选，冲突解决后才能还贡'};
   const t=source.tribute.transfers.find(t=>t.to===seat&&!t.back);
   if(!t)return {ok:false,error:'你无需还贡'};
   if(!source.hands[seat].some(c=>id(c)===id(card)))return {ok:false,error:'只能还自己的手牌'};
   if(isIdentity(card))return {ok:false,error:'还贡不能返还身份牌 ♠A、♠3'};
+  if(isOpeningCard(card))return {ok:false,error:'还贡不能返还 ♦4，请选其他牌'};
   const g:Game=JSON.parse(JSON.stringify(source));g.version++;
   const tt=g.tribute!.transfers.find(x=>x.to===seat&&!x.back)!;
   g.hands[seat]=g.hands[seat].filter(c=>id(c)!==id(card));g.hands[tt.from]=sort([...g.hands[tt.from],card]);tt.back=card;
@@ -135,8 +156,85 @@ export function returnTribute(source:Game,seat:number,card:Card):Result{
   }
   return {ok:true,state:g};
 }
-/** Bot choice: return the smallest card that is neither an identity card nor the tribute received. */
+/** Bot choice: return the smallest eligible card other than the tribute received. */
 export function botReturn(g:Game,seat:number):Card|null{
   const t=g.tribute?.transfers.find(t=>t.to===seat&&!t.back);if(!t)return null;
-  return sort(g.hands[seat]).find(c=>!isIdentity(c)&&id(c)!==id(t.card))||null;
+  return sort(g.hands[seat]).find(c=>canReturnTribute(c)&&id(c)!==id(t.card))||null;
+}
+
+/** Shared by every client: only overlapping complete pre-selections need arbitration. */
+export function tributeConflicts(selection:Pick<TributeSelection,'choices'>):[number,number][]{
+  const seats=Object.keys(selection.choices).map(Number),pairs:[number,number][]=[];
+  for(let i=0;i<seats.length;i++)for(let j=i+1;j<seats.length;j++){
+    const a=seats[i],b=seats[j];if(selection.choices[a].some(card=>selection.choices[b].includes(card)))pairs.push([a,b]);
+  }
+  return pairs;
+}
+export const rpsLabel=(move:RpsMove)=>({rock:'石头',paper:'布',scissors:'剪刀'})[move];
+export function tributeAction(source:Game,seat:number,action:TributeAction):Result{
+  if(action.kind==='return')return returnTribute(source,seat,action.card);
+  const selection=source.tribute?.selection;
+  if(source.status!=='tribute'||!selection)return {ok:false,error:'现在不是贡牌预选环节'};
+  if(!selection.quotas[seat])return {ok:false,error:'你不是本轮受贡者'};
+  const fail=(error:string):Result=>({ok:false,error});
+  if(action.kind==='select'){
+    if(selection.duel)return fail('猜拳进行中，出结果后再改选');
+    if(selection.locked.includes(seat))return fail('猜拳胜出的预选已经锁定');
+    if(action.cards.length!==selection.quotas[seat]||new Set(action.cards).size!==action.cards.length)return fail(`请预选 ${selection.quotas[seat]} 张不同的贡牌`);
+    if(action.cards.some(i=>!Number.isInteger(i)||i<0||i>=source.tribute!.transfers.length))return fail('只能选择贡牌池中的牌');
+    if(selection.locked.some(s=>selection.choices[s].some(i=>action.cards.includes(i))))return fail('这些牌已经由猜拳胜者选定，请选择剩余贡牌');
+  }else if(action.kind==='rps-start'){
+    if(selection.duel)return fail('已经有一场猜拳正在进行');
+    if(action.opponent===seat||!tributeConflicts(selection).some(pair=>pair.includes(seat)&&pair.includes(action.opponent)))return fail('只有选牌冲突的两人可以发起猜拳');
+  }else{
+    const duel=selection.duel;
+    if(!duel||!duel.players.includes(seat))return fail('你不在本次猜拳中');
+    if(action.duelId!==duel.id||action.round!==duel.round)return fail('猜拳已进入下一轮，请重新出拳');
+    if(duel.moves[seat])return fail('已出拳，等待对方');
+    if(!['rock','paper','scissors'].includes(action.move))return fail('请选择石头、剪刀或布');
+  }
+  const g:Game=JSON.parse(JSON.stringify(source));g.version++;
+  const s=g.tribute!.selection!;
+  if(action.kind==='select'){
+    s.choices[seat]=[...action.cards];g.log.push(`${seat}号位 · 已提交贡牌预选`);
+  }else if(action.kind==='rps-start'){
+    s.duel={id:g.version,players:[seat,action.opponent],moves:{},round:1};
+    g.log.push(`${seat}号位 与 ${action.opponent}号位 · 选牌冲突，发起猜拳`);
+  }else{
+    const duel=s.duel!;duel.moves[seat]=action.move;
+    const [a,b]=duel.players;
+    if(duel.moves[a]&&duel.moves[b]){
+      const moves=[duel.moves[a],duel.moves[b]],draw=moves[0]===moves[1];
+      const winner=draw?null:({rock:'scissors',scissors:'paper',paper:'rock'}[moves[0]]===moves[1]?a:b);
+      (g.tribute!.contests??=[]).push({players:[a,b],moves,winner,round:duel.round});
+      if(winner===null){g.log.push(`猜拳第 ${duel.round} 轮 · 双方${rpsLabel(moves[0])}，平手重来`);duel.round++;duel.moves={};}
+      else{
+        s.locked.push(winner);
+        for(const other of Object.keys(s.choices).map(Number))if(other!==winner)s.choices[other]=s.choices[other].filter(i=>!s.choices[winner].includes(i));
+        g.log.push(`${winner}号位 · 猜拳胜出，保留预选；其他受贡者重选冲突牌`);s.duel=null;
+      }
+    }
+  }
+  if(!s.duel&&!tributeConflicts(s).length&&Object.entries(s.quotas).every(([who,quota])=>s.choices[Number(who)]?.length===quota)){
+    for(const who of Object.keys(s.quotas).map(Number))for(const i of s.choices[who]){
+      const transfer=g.tribute!.transfers[i];transfer.to=who;g.hands[who]=sort([...g.hands[who],transfer.card]);
+    }
+    g.tribute!.selection=null;g.log.push('贡牌预选无冲突 · 分牌完成，请等量还贡');
+  }
+  return {ok:true,state:g};
+}
+
+/** Robots prefer uncontested cards, and submit a hidden random gesture if challenged. */
+export function botTributeAction(g:Game,seat:number,random:()=>number=Math.random):TributeAction|null{
+  if(g.status!=='tribute'||!g.tribute)return null;
+  const s=g.tribute.selection;
+  if(!s){const card=botReturn(g,seat);return card?{kind:'return',card}:null;}
+  if(!s.quotas[seat])return null;
+  if(s.duel)return s.duel.players.includes(seat)&&!s.duel.moves[seat]?{kind:'rps',move:(['rock','paper','scissors'] as const)[Math.floor(random()*3)],round:s.duel.round,duelId:s.duel.id}:null;
+  if(s.locked.includes(seat))return null;
+  const own=s.choices[seat]||[],conflict=tributeConflicts(s).some(pair=>pair.includes(seat));
+  if(own.length===s.quotas[seat]&&!conflict)return null;
+  const taken=new Set(Object.entries(s.choices).filter(([who])=>Number(who)!==seat).flatMap(([,cards])=>cards));
+  const cards=g.tribute.transfers.map((_,i)=>i).filter(i=>!taken.has(i)).slice(0,s.quotas[seat]);
+  return cards.length===s.quotas[seat]?{kind:'select',cards}:null;
 }

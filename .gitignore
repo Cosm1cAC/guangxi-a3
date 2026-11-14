@@ -26,3 +26,6 @@ artifacts/
 *.sqlite3
 *.db
 android/app/google-services.json
+douyin/game.js
+douyin/project.private.config.json
+output/copyright/

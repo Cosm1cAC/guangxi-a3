@@ -1,0 +1,10 @@
+{
+  "description": "像素A3：四人阵营扑克，基础积分与局间等量换牌",
+  "projectname": "像素A3",
+  "appid": "ttbf93c92e21efdb9f02",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "urlCheck": true
+  }
+}

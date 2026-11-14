@@ -1,5 +1,5 @@
-// Procedural sound: card foley, bronze bells & gongs, woodblock, a generative
-// guzheng (Karplus–Strong) in the Chinese pentatonic mode, and river ambience.
+// Procedural card effects and river ambience; licensed CC0 music uses the queue.
+import { createBrowserMusicPlayer } from './music';
 type Settings = { sfx: boolean; music: boolean; ambient: boolean; volume: number };
 const KEY = 'a3-sound';
 const PENTA = [146.83, 164.81, 185.0, 220.0, 246.94, 293.66, 329.63, 369.99, 440.0, 493.88, 587.33, 659.26, 739.99]; // D 宫调
@@ -9,15 +9,25 @@ export class SoundEngine {
   private ctx?: AudioContext;
   private master!: GainNode; private sfxBus!: GainNode; private musicBus!: GainNode; private ambBus!: GainNode; private verb!: ConvolverNode; private verbSend!: GainNode;
   private noise!: AudioBuffer; private plucks = new Map<number, AudioBuffer>();
-  private musicTimer?: ReturnType<typeof setInterval>; private nextNote = 0; private degree = 5; private phrase = 0;
+  readonly musicPlayer = createBrowserMusicPlayer();
   private ambNodes: AudioNode[] = []; private insectTimer?: ReturnType<typeof setTimeout>;
 
-  constructor() { try { Object.assign(this.settings, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ignore */ } }
+  constructor() {
+    try {
+      const saved=JSON.parse(localStorage.getItem(KEY)||'{}');
+      for(const key of ['sfx','music','ambient'] as const)if(typeof saved?.[key]==='boolean')this.settings[key]=saved[key];
+      if(typeof saved?.volume==='number'&&Number.isFinite(saved.volume))this.settings.volume=Math.max(0,Math.min(1,saved.volume));
+    }catch{/* Defaults work without storage. */}
+    this.musicPlayer.settings.enabled=this.settings.music;this.musicPlayer.setMasterVolume(this.settings.volume);
+  }
   get ready() { return !!this.ctx && this.ctx.state === 'running'; }
-  save() { localStorage.setItem(KEY, JSON.stringify(this.settings)); this.apply(); }
+  save() { try{localStorage.setItem(KEY, JSON.stringify(this.settings));}catch{/* Audio still works without storage. */}this.apply(); }
 
   /** Must be called from a user gesture. */
   unlock() {
+    this.musicPlayer.setEnabled(this.settings.music);
+    this.musicPlayer.setMasterVolume(this.settings.volume);
+    this.musicPlayer.activate();
     if (!this.ctx) {
       const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AC) return;
@@ -37,13 +47,14 @@ export class SoundEngine {
   }
 
   private apply() {
+    this.musicPlayer.setMasterVolume(this.settings.volume);
+    this.musicPlayer.setEnabled(this.settings.music);
     if (!this.ctx) return;
     const t = this.ctx.currentTime, s = this.settings;
     this.master.gain.setTargetAtTime(s.volume, t, .1);
     this.sfxBus.gain.setTargetAtTime(s.sfx ? 1 : 0, t, .05);
     this.musicBus.gain.setTargetAtTime(s.music ? .55 : 0, t, .4);
     this.ambBus.gain.setTargetAtTime(s.ambient ? .5 : 0, t, .4);
-    if (s.music) this.startMusic(); else this.stopMusic();
     if (s.ambient) this.startAmbient(); else this.stopAmbient();
   }
 
@@ -152,41 +163,6 @@ export class SoundEngine {
     this.noiseHit(t + .9, { type: 'lowpass', freq: 900, peak: .4, decay: .5, wet: .6 });
     for (let i = 0; i < 18; i++) this.noiseHit(t + 1 + Math.random() * .8, { type: 'highpass', freq: 3000, peak: .05, decay: .03, pan: Math.random() - .5 });
   }
-
-  // ---------------- Music: generative guzheng ----------------
-  private startMusic() {
-    if (this.musicTimer || !this.ctx) return;
-    this.nextNote = this.ctx.currentTime + .6;
-    const drone = () => { // soft open fifth drone, re-triggered each phrase
-      const t = this.nextNote; for (const f of [73.42, 110]) {
-        const o = this.ctx!.createOscillator(), g = this.ctx!.createGain(), lp = this.ctx!.createBiquadFilter();
-        o.type = 'triangle'; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = 380; o.connect(lp); lp.connect(g); g.connect(this.musicBus);
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(.05, t + 3); g.gain.exponentialRampToValueAtTime(0.0001, t + 11); o.start(t); o.stop(t + 11.2);
-      }
-    };
-    const beat = 60 / 64;
-    this.musicTimer = setInterval(() => {
-      if (!this.ctx) return;
-      while (this.nextNote < this.ctx.currentTime + 1.2) {
-        const t = this.nextNote;
-        if (this.phrase <= 0) {
-          this.phrase = 6 + Math.floor(Math.random() * 6); drone();
-          // 刮奏 glissando to open a phrase
-          if (Math.random() < .7) { const up = Math.random() < .6; for (let i = 0; i < 7; i++) this.pluck(t + i * .045, PENTA[up ? 3 + i : 11 - i], .16 + i * .02, (i - 3) * .1, this.musicBus); this.nextNote += .5; continue; }
-        }
-        const step = [-2, -1, -1, 1, 1, 2, 0, 3, -3][Math.floor(Math.random() * 9)];
-        this.degree = Math.max(2, Math.min(PENTA.length - 1, this.degree + step));
-        const f = PENTA[this.degree]; const vel = .3 + Math.random() * .2;
-        this.pluck(t, f, vel, (Math.random() - .5) * .5, this.musicBus);
-        if (Math.random() < .22) this.pluck(t + .02, f / 2, vel * .6, 0, this.musicBus);
-        if (Math.random() < .18) this.pluck(t + beat / 2, PENTA[Math.max(0, this.degree - 1)], vel * .6, .2, this.musicBus);
-        this.phrase--;
-        const dur = [1, 1, 1.5, 2, .5, 3][Math.floor(Math.random() * 6)] * beat;
-        this.nextNote += this.phrase === 0 ? dur + beat * 3 : dur;
-      }
-    }, 300);
-  }
-  private stopMusic() { clearInterval(this.musicTimer); this.musicTimer = undefined; }
 
   // ---------------- Ambient: river, breeze, insects ----------------
   private startAmbient() {

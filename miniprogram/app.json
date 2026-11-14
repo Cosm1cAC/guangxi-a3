@@ -1,1 +1,12 @@
-{"pages":["pages/table/index"],"window":{"navigationBarTitleText":"山水尖3","navigationBarBackgroundColor":"#173f48","navigationBarTextStyle":"white","backgroundColor":"#173f48"},"style":"v2"}
+{
+  "pages": [
+    "pages/table/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "方块A3",
+    "navigationBarBackgroundColor": "#17232e",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#17232e"
+  },
+  "style": "v2"
+}

@@ -160,7 +160,7 @@ try {
       await waitFor(async()=>await healthy(port)&&await webReady(port),45000,'本机服务启动超时，请查看上方日志。');
       try{await run(process.execPath,['scripts/cf-benchmark.mjs','--edge-only']);}catch(error){console.error(`Cloudflare 节点测速失败，将使用现有或默认节点：${error.message}`);}
       const entryConfig=prepareEntryTunnel();
-      startService('固定入口',['scripts/entry-server.mjs']);
+      startService('固定入口',['scripts/entry-server.mjs'],{...process.env,A3_GAME_PORT:String(port)});
       await waitFor(async()=>{try{return (await fetch('http://127.0.0.1:3003/healthz')).ok;}catch{return false;}},10000,'固定入口本机服务启动失败。');
       startService('固定入口 Cloudflare 隧道',['tunnel','--config',entryConfig,'run'],cpolarEnvironment(),'cloudflared',{critical:false});
       const child=startService('cpolar 国内隧道',cpolarArgs(cpolar.config,port),cpolarEnvironment(),cpolar.executable,{stdio:['ignore','pipe','pipe']});

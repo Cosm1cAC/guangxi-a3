@@ -1,0 +1,32 @@
+Preset music credits
+
+All four recordings are offered by their uploaders under CC0 1.0 Universal.
+License: https://creativecommons.org/publicdomain/zero/1.0/
+Full license: CC0-1.0.txt
+Permission verified on the individual source pages on 2026-11-14.
+Audio has been transcoded to MP3 and loudness-normalized; recordings are full length.
+These are independent ambient/piano works, not Minecraft soundtrack recordings.
+
+First Light Particles — Yoiyami
+License: CC0 1.0 Universal
+Source: https://opengameart.org/content/first-light-particles-%E2%80%93-cc0-atmospheric-pianoambient-track
+File: /audio/first-light.mp3
+SHA-256: 3ea489adbd52897a1da9529ef951a2509f04307854f7625544ccacbe4b57e1d2
+
+Yoiyami Core Theme — Yoiyami
+License: CC0 1.0 Universal
+Source: https://opengameart.org/content/yoiyami-core-theme-%E2%80%93-deep-blue-ambient-piano
+File: /audio/deep-blue.mp3
+SHA-256: a57a6415444c19683e86847d39387e5d1e32725676909a0c3a10f6a3e2ba9cf5
+
+Vaporware — The Cynic Project
+License: CC0 1.0 Universal
+Source: https://opengameart.org/content/calm-piano-1-vaporware
+File: /audio/vaporware.mp3
+SHA-256: bc2721dd6a2b39c224948b944509b7d6d6c19f3cdd454db998dc12a28b788bd8
+
+Mystical Piano — Indieteur
+License: CC0 1.0 Universal
+Source: https://opengameart.org/content/mystical-piano
+File: /audio/mystical-piano.mp3
+SHA-256: d7cfa1817be5cf2ad16a645004e4a9fc6c6b7ee681d757db48ddfbccd51137be

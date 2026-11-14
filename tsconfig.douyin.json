@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/douyin/**/*.ts", "src/core/**/*.ts", "miniprogram/presentation.ts"],
+  "exclude": ["node_modules"]
+}

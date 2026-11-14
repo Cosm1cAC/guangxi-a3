@@ -5,7 +5,7 @@ import { z } from 'zod';
 import {pool} from './db';
 import {auth,userOf,requireUser,lanAddresses,type User} from './auth';
 import {BOT_AVATARS,DEFAULT_AVATAR,type Avatar} from '../src/core/avatar';
-import {createGame,createNextGame,act,returnTribute,botReturn,view,legalMoves,type Game} from '../src/core/game';
+import {createGame,createNextGame,act,returnTribute,tributeAction,botTributeAction,view,legalMoves,type Game} from '../src/core/game';
 
 const app=express();app.disable('x-powered-by');app.set('trust proxy','loopback');app.use(express.json({limit:'8kb'}));
 type Member={userId:number|null;name:string;avatar:Avatar;bot:boolean};
@@ -28,7 +28,7 @@ const output=(r:Room,seat:number)=>({...view(r.state,seat),room:r.id,roomStatus:
 const member=(u:User):Member=>({userId:u.id,name:u.name,avatar:u.avatar,bot:false});
 function bots(r:Room){
   let count=0;
-  while(r.state.status==='tribute'&&count++<20){const seat=r.members.findIndex((m,i)=>m.bot&&r.state.tribute?.transfers.some(t=>t.to===i&&!t.back));if(seat<0)break;const result=returnTribute(r.state,seat,botReturn(r.state,seat)!);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
+  while(r.state.status==='tribute'&&count++<40){const seat=r.members.findIndex((m,i)=>m.bot&&botTributeAction(r.state,i));if(seat<0)break;const result=tributeAction(r.state,seat,botTributeAction(r.state,seat,()=>randomInt(0,0x100000000)/0x100000000)!);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
   while(r.state.status==='playing'&&r.members[r.state.turn]?.bot&&count++<500){const result=act(r.state,r.state.turn,legalMoves(r.state,r.state.turn)[0]||[]);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
   if(r.state.status==='finished')r.status='finished';
 }
@@ -97,6 +97,20 @@ app.post('/api/rooms/:id/tribute',(req,res,next)=>{
   void mutate(req,res,next,async(r,seat,fail)=>{
     if(parsed.data.version!==r.state.version)return fail(409,'牌局已更新，请重试');
     const result=returnTribute(r.state,seat,parsed.data.card);if(!result.ok)return fail(422,result.error);r.state=result.state;bots(r);
+  });
+});
+const tributeChoiceSchema=z.object({version:z.number().int().nonnegative(),round:z.number().int().positive(),action:z.discriminatedUnion('kind',[
+  z.object({kind:z.literal('select'),cards:z.array(z.number().int().min(0).max(5)).min(1).max(6)}),
+  z.object({kind:z.literal('rps-start'),opponent:z.number().int().min(0).max(3)}),
+  z.object({kind:z.literal('rps'),move:z.enum(['rock','paper','scissors']),round:z.number().int().positive(),duelId:z.number().int().nonnegative()})
+])});
+app.post('/api/rooms/:id/tribute-choice',(req,res,next)=>{
+  const parsed=tributeChoiceSchema.safeParse(req.body);if(!parsed.success)return void res.status(400).json({error:'贡牌预选请求格式不正确'});
+  void mutate(req,res,next,async(r,seat,fail)=>{
+    if(r.status!=='playing'||parsed.data.round!==(r.state.round||1))return fail(409,'牌局已更新，请重新选择');
+    // Independent pre-selections and hidden gestures merge under the room row lock.
+    if(parsed.data.version>r.state.version)return fail(409,'牌局版本不正确');
+    const result=tributeAction(r.state,seat,parsed.data.action);if(!result.ok)return fail(422,result.error);r.state=result.state;bots(r);
   });
 });
 // Next round: idempotent — whoever asks first deals; later callers just get the new state.

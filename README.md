@@ -1,6 +1,6 @@
 # 山水尖3 · 广西 A3
 
-Node + TypeScript + Three.js + PostgreSQL，Web 与微信原生小程序共用规则引擎、账号和房间服务。Web 端是方块像素风的 3D 牌桌：体素喀斯特峰林、木平台茶亭、方块灯笼、像素扑克和可换装的方块人；所有纹理由代码生成，不含任何第三方游戏素材，也无需远程图片服务。
+Node + TypeScript + Three.js + PostgreSQL，Web 与微信原生小程序共用规则引擎、账号和房间服务。Web 端是方块像素风的 3D 牌桌：体素喀斯特峰林、木平台茶亭、方块灯笼、像素扑克和可换装的方块人；场景、牌面与纹理由代码生成，无需远程图片服务；背景音乐预置 4 首经作者声明以 CC0 发布的钢琴／氛围作品，来源与授权见 `public/audio/CREDITS.txt`。
 
 源码：[Cosm1cAC/guangxi-a3](https://github.com/Cosm1cAC/guangxi-a3) · [在线开桌](https://a3.vibelink.cloud/go/) · [安卓下载页](https://a3.vibelink.cloud/download/) · [GitHub Releases](https://github.com/Cosm1cAC/guangxi-a3/releases)
 
@@ -54,15 +54,28 @@ npx tsx scripts/api-smoke.ts   # 可用 A3_API_BASE 指定 API；两局全流程
 1. `npm run build` 生成小程序 JavaScript bundle，无需在开发者工具中重复构建 npm。
 2. 微信开发者工具导入 `miniprogram/`。将 `project.config.json` 的 touristappid 替换为你的 AppID。
 3. 本地模拟器调试可在开发者工具关闭合法域名校验。真机调试把 `miniprogram/config.ts` 改成电脑的局域网地址（如 `http://192.168.1.10:3001/api`）并勾选「不校验合法域名」；正式发布需改为 HTTPS API 并在微信后台添加 request 合法域名，再构建。
-4. 真机可独立玩机器人练习；好友房在「好友开桌」里用邮箱登录 / 注册后开房或加入，与 Web 端同一账号、同一房间互通。服务端配置 `WECHAT_MINI_APP_ID` / `WECHAT_MINI_APP_SECRET` 后可用「微信一键登录」。小程序没有使用 web-view，3D 场景仍是原来的共享场景（方块像素风只做了 Web 端），头像是账号形象的像素头像。
+4. 真机可独立玩机器人练习；好友房在「好友开桌」里用邮箱登录 / 注册后开房或加入，与 Web 端同一账号、同一房间互通。服务端配置 `WECHAT_MINI_APP_ID` / `WECHAT_MINI_APP_SECRET` 后可用「微信一键登录」。小程序没有使用 web-view，界面名为「方块A3」，采用矩形绿毡牌桌、深色方块房间、直角按钮、内嵌像素字体与账号像素头像；手牌按七列完整排布，保留身份牌提醒。
 
-共享场景仅使用两端兼容的几何、材质和光照 API。Web 使用 Three.js r180，小程序使用微信官方 scoped 适配包（内核 r108），避免把浏览器 DOM 假设带入小程序。适配包来源：https://github.com/wechat-miniprogram/threejs-miniprogram 。需在目标手机验证性能和生命周期。
+小程序场景位于 `src/visual/table.ts`，Web 场景位于 `src/web/scene/`。Web 使用 Three.js r180，小程序使用微信官方 scoped 适配包（内核 r108），避免把浏览器 DOM 假设带入小程序。适配包来源：https://github.com/wechat-miniprogram/threejs-miniprogram 。像素字体为 Fusion Pixel Font 的更名子集，许可位于 `miniprogram/fonts/`，未收录的昵称字形使用系统后备字体。需在目标手机验证字体、性能和生命周期。
+
+小程序的展示术语通过 `miniprogram/presentation.ts` 转换：进贡／还贡显示为交牌／回牌，独食显示为单人阵营，农民方显示为普通阵营。规则说明完整保留输赢积分、逐张等量回牌、可退原牌及禁止回 ♠A、♠3、♦4 等条件；共享引擎与接口字段保持一致。抖音使用下面的独立 Canvas 工程，微信 WXML 包不能直接作为抖音小游戏上传。
+
+## 抖音小游戏：像素A3
+
+`douyin/` 是原生小游戏工程，入口由 `src/douyin/main.ts` 构建为 `game.js`，配套 `game.json` 和真实 AppID `ttbf93c92e21efdb9f02`。界面完全使用 Canvas 2D 绘制像素牌桌、头像、完整手牌、分页规则、登录／好友房及隐私说明，使用 `tt` 触控、键盘、缓存、请求和前后台接口，不加载网页。规则和中性术语与其他客户端共用。侧边栏入口按 `tt.checkScene` 的支持结果显示，通过 `tt.navigateToScene` 跳转。
+
+- `npm run build:douyin`：检查类型并生成调试包；`npm run build` 也包含这一步。
+- `npm run build:douyin:release`：额外检查真实 AppID 后生成上传工程；该命令只构建，不代表已通过平台审核。
+- 抖音开发者工具导入 `douyin/`。像素字体 TTF 与许可证随包提供，不需要远程字体服务。需要重新生成字体时运行 `node scripts/build-douyin.mjs --font`，本机使用 `.local/font-tools/` 的 fontTools。
+- `A3_DOUYIN_API_BASE` 可覆盖构建时的 HTTPS API，默认为 `https://a3.vibelink.cloud/api`。固定入口服务增加了 `/api/` 转发到本机游戏服务的支持，由启动器传入实际游戏端口。此改动需重启入口服务生效；当前运行入口尚未重载，抖音后台 request 合法域名和真实多人联机仍待配置验证。
+
+2026-11-14：个人开发者认证已通过，后台已创建「像素A3」，图标、真实玩法介绍及「棋牌桌游／扑克牌」分类已保存为基础信息草稿，题材为「其他」。用户确认没有本游戏软著证书；后台明确所有游戏须通过软著审核，且需完成游戏备案与 ICP 备案后才能上线。官方 CLI 测试上传遇到接口兼容错误，尚未成功生成后台测试版本，也未提交基础信息或版本审核。手机真机／官方模拟器验证仍待完成。本地自动化预览不代表已通过这些环节。
 
 ## 规则范围
 
 采用文档主规则：单、对、三、五张八类牌型；3 最大、2 次大，顺子 34567 至 10JQKA；同花按最大牌；每局 ♦4 首出；隐藏身份、暗独食、逆时针、过牌后可再出、下家接风、报单可压必打；2v2 与独食基础分制。
 
-多局连打并累计积分。进贡／还贡统一按规则文档第10章与第17章执行：2v2 全败局末游→头游、三游→二游各贡 2 张；半败局末游→头游、二游→三游各贡 1 张；1、4 名一队对 2、3 名一队为平局，双方 0 分、无贡牌。独食全胜／全败每家 2 张、半胜／半败每家 1 张，输方向赢方进贡；独食者输时按对方名次从前到后分配。贡牌为除 ♠A、♠3 外最大牌，自动扣交、仅双方可见。受贡者逐张手动选择非身份牌等量返还，可退原贡牌，不能返还 ♠A、♠3。不采用免贡／抗贡；全部还完后每人 13 张，由最终持有 ♦4 的玩家首出，首手必须包含 ♦4。不启用叫独食/摆牌倍数、投降和地方变体。2v2 任一队出完就结算，未出完者补名次；独食者出完或其余三人出完时结算。规则文档的同花例子冲突及取舍见 `docs/IMPLEMENTATION.md`。
+多局连打并累计积分。进贡／还贡采用共享规则引擎：2v2 全胜／全败为大贡，两名输方各交 2 张、两名赢方各收 2 张；半胜／半败为小贡，各交、各收 1 张；1、4 名同队为平局，不贡。独食全胜／全败与其余每家交换 2 张，半胜／半败交换 1 张。进贡者自动交出除 ♠A、♠3 外最大的牌到同一牌池。多名受贡者自由预选足额贡牌，全部无冲突后统一分牌；有冲突时可改选协商，或由冲突双方发起猜拳，手势双方提交后才公开、平手重来。胜者锁定预选，败者从剩余牌重选。受贡者逐张向所收贡牌的原交牌者等量返还，可退原贡牌，禁止返还 ♠A、♠3、♦4。单名受贡者直接收取全部贡牌。不设免贡／抗贡。全部还完每人 13 张，♦4 持有者首出。结算正确显示独食身份，自动补齐名次仅用于内部计算，界面不显示“补位”。不启用叫独食／摆牌倍数、投降和地方变体。2v2 任一队出完即结算，独食者出完或其他三人出完时结算。
 
 ## 目录
 
@@ -73,7 +86,7 @@ npx tsx scripts/api-smoke.ts   # 可用 A3_API_BASE 指定 API；两局全流程
 - `src/web/scene/`：Web 专用方块像素风 3D 场景。`pixels.ts` 生成 16×16 方块纹理，`world.ts` 搭体素峰林、小岛、茶亭和牌桌，`figures.ts` 按形象拼方块人，`cards.ts` 画像素扑克，`stage.ts` 负责镜头（大厅 / 牌桌 / 换装）、手牌与发牌出牌动画。
 - `src/web/account.ts`：账号面板（邮箱、扫码、资料、局域网二维码、积分榜、手机端扫码确认页）。
 - `src/web/chat.ts`：「茶亭闲话」聊天面板：快捷语、表情、头顶气泡；好友房消息存 PostgreSQL `room_messages`（需登录凭证、1–60 字、去除控制字符、每座位 0.8 秒限频），练习桌由机器人应答。
-- `src/web/audio.ts`：Web Audio 程序化声音：牌声、木鱼过牌、铜铃/铜锣、古筝生成配乐（Karplus–Strong 五声音阶）、江水虫鸣环境音，可在「声音」面板分别开关。
+- `src/web/audio.ts`：Web Audio 程序化牌声、木鱼过牌、铜铃／铜锣与江水虫鸣；声音面板中的方块留声机支持 4 首 CC0 钢琴／氛围音乐、上一首／下一首、选曲、暂停、进度、音乐音量与列表／随机／单曲循环，记住上次选择。Web／安卓内置音频可离线播放，小程序／抖音通过游戏服务器的 `/audio/` 播放，声音与牌局音效分别控制。
 - `server/`：Express API、PostgreSQL schema 和迁移；`server/auth.ts` 是账号、会话、扫码票据与微信接口。
 - `miniprogram/`：原生小程序 WXML/WXSS 与 TypeScript 源文件。
 - `public/assets/`：自制 SVG 牌面、牌背、纹饰；`scripts/generate-cards.mjs` 可重建 52 张牌面。
@@ -114,7 +127,7 @@ Cloudflare 固定入口配置在 `.local/cloudflared/entry-config.yml`，原配�
 
 cpolar 客户端位于 `.local/cpolar/cpolar.exe`。本机从官网 Windows 64 位安装包中解出单独的可执行文件，已验证安装包及程序的数字签名；没有安装 Windows 服务或默认示例隧道。其他电脑需从 [官方下载页](https://www.cpolar.com/download) 获取客户端。启动器只映射游戏端口，禁用请求记录，检查接口只绑定本机回环地址，关闭 cpolar 后台；独立启动的客户端不继承系统 HTTP／SOCKS 代理。
 
-`穿透启动.cmd` 与 `公网启动.cmd` 默认使用 3002，可通过 `PORT` 覆盖；固定跳转服务使用 3003。直接运行 `node scripts/start.mjs --cpolar` 时，仍以 `PORT`／`.env`／默认 3001 为准。保持启动窗口开启；Ctrl+C 关闭本次服务与隧道。端口被占用时脚本报错，不会停止其他服务。域名 DNS 维持原有 Cloudflare 隧道记录。
+`穿透启动.cmd` 与 `公网启动.cmd` 默认使用 3002，可通过 `PORT` 覆盖；固定跳转服务使用 3003；同时在固定域名下提供 `/api/` 和支持 byte range 的 `/audio/`，供原生客户端使用。直接运行 `node scripts/start.mjs --cpolar` 时，仍以 `PORT`／`.env`／默认 3001 为准。保持启动窗口开启；Ctrl+C 关闭本次服务与隧道。端口被占用时脚本报错，不会停止其他服务。域名 DNS 维持原有 Cloudflare 隧道记录。
 
 官网免费版当前为 1Mbps、随机地址；固定域名与更多带宽有套餐限制，先实测再选择。当前先使用服务商分配的地址，没有绑定原来的 `a3.vibelink.cloud`。安卓应用可在“服务器·更改”填入新的 HTTPS 地址；真实微信扫码的回调域名也需在平台侧匹配，随机地址仅适合测试。
 

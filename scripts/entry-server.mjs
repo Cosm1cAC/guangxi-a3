@@ -1,10 +1,14 @@
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {cpolarPublicUrl} from './cpolar.mjs';
+import {proxyGameApi} from './api-proxy.mjs';
+import {serveGameAudio} from './audio-files.mjs';
 const port=Number(process.env.A3_ENTRY_PORT||3003);
 const server=http.createServer(async(req,res)=>{
   res.setHeader('Cache-Control','no-store, max-age=0');res.setHeader('Pragma','no-cache');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');
   const incoming=new URL(req.url,'http://localhost');
+  if(incoming.pathname.startsWith('/api/')){proxyGameApi(req,res,Number(process.env.A3_GAME_PORT||3002));return;}
+  if(incoming.pathname.startsWith('/audio/')){await serveGameAudio(req,res);return;}
   if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405,{Allow:'GET, HEAD'});res.end();return;}
   if(incoming.pathname==='/healthz'){res.writeHead(200,{'Content-Type':'application/json'});res.end('{"ok":true}');return;}
   if(!['/','/go','/go/','/go/target.json','/download','/download/'].includes(incoming.pathname)){res.writeHead(404);res.end('Not found');return;}
