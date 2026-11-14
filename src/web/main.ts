@@ -10,6 +10,8 @@ import type { Stage } from './scene/stage';
 import { api as request, session, myAvatar, saveGuestAvatar, faceImg, createAccount, type User } from './account';
 import { AVATAR_OPTIONS, AVATAR_LABELS, AVATAR_KEYS, BOT_AVATARS, DEFAULT_AVATAR, randomAvatar, type Avatar } from '../core/avatar';
 import './style.css';
+import './mobile.css';
+import {watchViewport} from './viewport';
 
 type Remote = GameView & { room: string; roomStatus: string; canFillBots?: boolean; rankedRound?: boolean; replacedBot?: boolean; members: { name: string; bot: boolean; avatar?: Avatar }[] };
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -130,18 +132,20 @@ const cn = '一二三四';
 
 // ---------- 3D stage (lazy, with graceful 2D fallback) ----------
 let stage: Stage | undefined;
+let stageViewport={width:0,height:0,safeBottom:0,safeLeft:0,safeRight:0};
+const viewport=watchViewport(size=>{if(size.width!==stageViewport.width||size.height!==stageViewport.height||size.safeBottom!==stageViewport.safeBottom||size.safeLeft!==stageViewport.safeLeft||size.safeRight!==stageViewport.safeRight){stage?.resize(size.width,size.height);stageViewport=size;}requestAnimationFrame(updateTableLayout);});
+const handObserver=new ResizeObserver(()=>requestAnimationFrame(updateTableLayout));handObserver.observe($('#hand'));handObserver.observe($('.hud-top'));
 async function boot3D() {
   try {
     const { createStage } = await import('./scene/stage');
     stage = createStage($<HTMLCanvasElement>('#scene'), { toggle: k => toggleCard(k), hover: () => sound.hover() });
-    const resize = () => stage?.resize(innerWidth, innerHeight);
-    addEventListener('resize', resize); resize();
+    stage.resize(viewport.size.width,viewport.size.height);
     stage.onFrame(placePlates);
     document.body.classList.add('webgl');
     syncAvatars();
     if (state()) { stage.setMode('table'); syncStage(state()!, true); }
   } catch (e) {
-    console.warn(e); document.body.classList.add('flat'); toast('当前设备不支持 3D，已切换为平面牌桌');
+    console.warn(e); document.body.classList.add('flat');
   }
 }
 void boot3D();
@@ -248,8 +252,8 @@ function renderTributeChoice(s:GameView){
   const conflicts=tributeConflicts(selection),opponents=conflicts.filter(pair=>pair.includes(s.seat)).map(pair=>pair.find(who=>who!==s.seat)!);
   const reserved=new Set(selection.locked.filter(who=>who!==s.seat).flatMap(who=>selection.choices[who]));
   const last=s.tribute!.contests.at(-1);
-  panel.innerHTML=`<h3>贡牌池 · 双方预选</h3><p>${quota?`你可选 ${quota} 张；双方无冲突才分牌`:'等待受贡者选牌；预选完成后开始还贡'}</p>
-    <div class="tribute-pool">${s.tribute!.transfers.map((t,i)=>{
+  panel.innerHTML=`<h3>贡牌池 · 双方预选</h3><p>${quota?`共 ${s.tribute!.transfers.length} 张，你可选 ${quota} 张；双方无冲突才分牌`:'等待受贡者选牌；预选完成后开始还贡'}</p>
+    <div class="tribute-pool" style="--pool-size:${s.tribute!.transfers.length}">${s.tribute!.transfers.map((t,i)=>{
       const picked=Object.entries(selection.choices).filter(([,cards])=>cards.includes(i)).map(([who])=>playerName(Number(who)));
       return `<button class="tribute-card ${t.card&&red(t.card)?'red':''} ${tributeDraft.has(i)?'selected':''} ${picked.length>1?'conflict':''}" data-tribute-card="${i}" aria-pressed="${tributeDraft.has(i)}" ${!quota||locked||reserved.has(i)||busy?'disabled':''}><b>${t.card?`<span class="suit-icon">${suitSvg(t.card.suit)}</span>${rankLabel(t.card.rank)}`:'牌背'}</b>${t.card?`<em class="suit-name">${SUIT_NAMES[t.card.suit]}</em>`:''}<small>${escape(playerName(t.from))} 交出</small><small>${picked.length?escape(picked.join('、'))+' 预选':'尚未预选'}</small></button>`;
     }).join('')}</div>
@@ -273,7 +277,7 @@ function plateHTML(s: GameView, seat: number) {
   const ident = p.identity === '身份未明' ? '' : `<em class="ident ${p.identity === '农民方' ? 'farmer' : 'a3'}">${p.identity}</em>`;
   const status = p.rank ? `<span class="rank r${p.rank}">第${cn[p.rank - 1]}名</span>` : `<span class="count${p.count === 1 ? ' warn' : ''}"><i class="mini-back"></i>${p.count}${p.count === 1 ? ' · 报单' : ''}</span>`;
   const total = s.round > 1 || s.status === 'finished' ? `<span class="total ${s.totals[seat] > 0 ? 'up' : s.totals[seat] < 0 ? 'down' : ''}">${signed(s.totals[seat])}</span>` : '';
-  return `<div class="plate glass seat-${r} ${active ? 'active' : ''}" data-rel="${r}"><div class="avatar">${seatAvatar(seat) ? faceImg(seatAvatar(seat)!) : '?'}</div><div class="who"><b>${escape(playerName(seat))}${remote?.members[seat]?.bot?'<span class="bot-badge">机器人</span>':''}</b><div class="tags">${status}${ident}${total}</div></div>${active ? '<div class="thinking"><i></i><i></i><i></i></div>' : ''}<div class="bubble" data-bubble></div></div>`;
+  return `<div class="plate glass seat-${r} ${active ? 'active' : ''}" data-rel="${r}"><div class="avatar">${seatAvatar(seat) ? faceImg(seatAvatar(seat)!) : '?'}</div><div class="who"><b><span class="player-name">${escape(playerName(seat))}</span>${remote?.members[seat]?.bot?'<span class="bot-badge">机器人</span>':''}</b><div class="tags">${status}${ident}${total}</div></div>${active ? '<div class="thinking"><i></i><i></i><i></i></div>' : ''}<div class="bubble" data-bubble></div></div>`;
 }
 function render() {
   const s = state(); if (!s) return;
@@ -286,10 +290,11 @@ function render() {
   const me = s.players[s.seat], tributing = s.status === 'tribute', owe = owesReturn(s, s.seat);
   const pendingT = s.tribute?.transfers.find(t => t.to === s.seat && !t.returned);
   const held = s.hand.filter(isIdentity);
-  $('#identity-held').textContent = held.length ? `你持有 ${held.map(label).join('、')}${held.length === 2 ? ' · 双牌独食，一打三' : ' · 留意队友'}` : '';
+  $('#identity-held').innerHTML = held.length ? `<span class="reminder-label">你持有 </span><b class="reminder-cards">${held.map(label).join('、')}</b><span class="reminder-extra">${held.length === 2 ? ' · 双牌独食，一打三' : ' · 留意队友'}</span>` : '';
   const identityPlay = [...s.log].reverse().find(line => /^\d号位 · /.test(line) && /♠A|♠3/.test(line));
-  $('#identity-played').textContent = identityPlay ? identityPlay.replace(/^(\d)号位 · /, (_, seat) => `${playerName(Number(seat))} 已打出：`) : '';
-  $('#me').innerHTML = `${faceImg(seatAvatar(s.seat) ?? DEFAULT_AVATAR, 'mid')}<div class="seal-id ${s.ownIdentity === '农民方' ? 'farmer' : 'a3'}">${s.ownIdentity === '独食' ? '独食' : s.ownIdentity === 'A3方' ? 'A3' : '农'}</div><div><b>${escape(playerName(s.seat))}<small>${s.ownIdentity}</small>${s.round > 1 || s.status === 'finished' ? `<small class="total ${s.totals[s.seat] > 0 ? 'up' : s.totals[s.seat] < 0 ? 'down' : ''}">累计 ${signed(s.totals[s.seat])}</small>` : ''}</b><span>${me.rank ? `第 ${me.rank} 名` : `手牌 ${s.hand.length} 张`}${(s.turn === s.seat && s.status === 'playing') || owe ? ` · <em>${owe ? '请还贡' : '轮到你'}</em>` : ''}</span></div>`;
+  $('#identity-played').innerHTML = identityPlay ? `<span class="reminder-label">${escape(playerName(Number(identityPlay[0])))} 已打出：</span><b class="reminder-cards">${(identityPlay.match(/♠(?:A|3)/g)||[]).join('、')}</b>` : '';
+  $('#me').innerHTML = `${faceImg(seatAvatar(s.seat) ?? DEFAULT_AVATAR, 'mid')}<div class="seal-id ${s.ownIdentity === '农民方' ? 'farmer' : 'a3'}">${s.ownIdentity === '独食' ? '独食' : s.ownIdentity === 'A3方' ? 'A3' : '农'}</div><div class="me-meta"><b><span class="player-name">${escape(playerName(s.seat))}</span><small class="own-identity">${s.ownIdentity}</small></b><span>${me.rank ? `第 ${me.rank} 名` : `<i class="hand-prefix">手牌 </i>${s.hand.length} 张`}${s.round > 1 || s.status === 'finished' ? ` <small class="total ${s.totals[s.seat] > 0 ? 'up' : s.totals[s.seat] < 0 ? 'down' : ''}">累计 ${signed(s.totals[s.seat])}</small>` : ''}${(s.turn === s.seat && s.status === 'playing') || owe ? ` <em>${owe ? '请还贡' : '轮到你'}</em>` : ''}</span></div>`;
+  $('#hand').style.setProperty('--hand-count',String(Math.max(1,s.hand.length)));
   $('#hand').innerHTML = s.hand.map(c => `<button class="card ${isIdentity(c) ? 'identity-card' : ''} ${red(c) ? 'red' : ''} ${selected.has(id(c)) ? 'selected' : ''}" data-card="${id(c)}" aria-label="${label(c)}" aria-pressed="${selected.has(id(c))}"><b>${rankLabel(c.rank)}</b><span class="suit-icon" title="${SUIT_NAMES[c.suit]}">${suitSvg(c.suit)}</span></button>`).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-card]').forEach(b => b.onclick = () => toggleCard(b.dataset.card!));
   $('#trick').innerHTML = s.last ? `<small>${escape(playerName(s.last.seat))} · ${classify(s.last.cards)!.kind}</small><div>${s.last.cards.map(c => `<span class="mini-card ${red(c) ? 'red' : ''}">${rankLabel(c.rank)}<i class="suit-icon">${suitSvg(c.suit)}</i></span>`).join('')}</div>` : '';
@@ -330,6 +335,7 @@ function render() {
   if (s.status === 'finished' && prev?.status !== 'finished') setTimeout(showResult, 1500);
   if (s.status !== 'finished' && $('#dialog').classList.contains('result') && $<HTMLDialogElement>('#dialog').open) $<HTMLDialogElement>('#dialog').close();
   prev = s;
+  requestAnimationFrame(updateTableLayout);
 }
 
 // ---------- serial animation queue (deal → tribute → returns) ----------
@@ -440,17 +446,41 @@ function bubble(r: number, text: string, pass = false, kind = '') {
   if (plate) { plate.textContent = text; plate.className = `bubble show ${kind} ${pass ? 'pass' : ''}`; clearTimeout(Number(plate.dataset.timer)); plate.dataset.timer = String(setTimeout(() => plate.classList.remove('show'), ms)); }
   if (pass) sound.pass(pans[r]);
 }
-function placePlates() {
-  if (!stage) return;
-  // 名牌避让顶栏和挖孔屏安全区；回合提示位于牌桌中部。
-  const safeTop = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0;
-  const minY = 64 + safeTop;
-  document.querySelectorAll<HTMLElement>('.plate').forEach(el => {
-    const r = Number(el.dataset.rel), a = stage!.anchor(r);
-    const w = el.offsetWidth, h = el.offsetHeight, m = 10;
-    const x = Math.min(innerWidth - w - m, Math.max(m, a.x - w / 2)), y = Math.min(innerHeight - h - 160, Math.max(minY, a.y - h));
-    el.style.transform = `translate(${x}px,${y}px)`;
-  });
+function updateTableLayout(){
+  if(document.body.classList.contains('flat')){const hand=$('#hand');if(hand.children.length)document.body.style.setProperty('--hand-top',`${Math.ceil(hand.getBoundingClientRect().height+viewport.size.safeBottom+18)}px`);}
+  else document.body.style.removeProperty('--hand-top');
+  placePlates();
+}
+function placePlates(){
+  const plates=Array.from(document.querySelectorAll<HTMLElement>('.plate'));if(!plates.length)return;
+  const {width,height,top}=viewport.size,compact=width<=820||height<=540,landscape=width>height&&height<=540,m=10;
+  const left=Math.max(m,parseFloat(document.documentElement.style.getPropertyValue('--safe-left'))||0),right=Math.max(m,parseFloat(document.documentElement.style.getPropertyValue('--safe-right'))||0),usableWidth=width-left-right;
+  const set=(el:HTMLElement,key:string,value:string)=>{if(el.style.getPropertyValue(key)!==value)el.style.setProperty(key,value);};
+  const headerBottom=Math.max($('.hud-top').getBoundingClientRect().bottom,$('#server-presence').getBoundingClientRect().bottom);
+  set(document.documentElement,'--hud-bottom',`${Math.round(headerBottom)}px`);
+  const reminders=$('.identity-reminders');if(compact)set(reminders,'top',`${Math.round(headerBottom+8)}px`);else if(reminders.style.top)reminders.style.removeProperty('top');
+  const minY=Math.max(headerBottom+8,reminders.textContent?.trim()?reminders.getBoundingClientRect().bottom+8:0);
+  const controls=[$('#me'),$('.dock'),$('#room-waiting')].map(el=>el.getBoundingClientRect()).filter(rect=>rect.width&&rect.height).map(rect=>rect.top);
+  const bottom=Math.min(top+height-24,...controls)-8,banner=$('#turn-banner'),bannerH=banner.hidden?0:banner.offsetHeight;
+  const oneRow=landscape||compact&&bottom-minY<bannerH+104;
+  const clamp=(n:number,min:number,max:number)=>Math.max(min,Math.min(max,n));
+  let oppositeBottom=minY,sideBottom=minY;
+  for(const rel of [2,3,1]){
+    const el=plates.find(p=>Number(p.dataset.rel)===rel);if(!el)continue;
+    el.classList.toggle('compact-row',oneRow&&!landscape);
+    set(el,'max-width',compact?`${oneRow?Math.min(220,(usableWidth-2*m)/3):rel===2?Math.min(240,usableWidth):(usableWidth-m)/2}px`:'280px');
+    const w=el.offsetWidth,h=el.offsetHeight,a=stage?.anchor(rel)||{x:width*(rel===1?.82:rel===3?.18:.5),y:height*(rel===2?.25:.4)};
+    let x=clamp(a.x-w/2,left,width-w-right),y=clamp(a.y+top-h,minY,bottom-h);
+    if(compact){
+      x=rel===2?left+(usableWidth-w)/2:rel===3?left:width-w-right;
+      if(oneRow)y=minY;
+      else if(rel===2)y=clamp(y,minY,bottom-h-66-bannerH);
+      else y=clamp(y,oppositeBottom+8,bottom-h-bannerH-16);
+    }
+    set(el,'transform',`translate(${Math.round(x)}px,${Math.round(y)}px)`);
+    if(rel===2)oppositeBottom=y+h;else sideBottom=Math.max(sideBottom,y+h);
+  }
+  if(compact){set(banner,'top',`${Math.round(Math.min(bottom-bannerH/2,Math.max(top+height/2,sideBottom+8+bannerH/2)))}px`);set(banner,'left',`${left+usableWidth/2}px`);}else{if(banner.style.top)banner.style.removeProperty('top');if(banner.style.left)banner.style.removeProperty('left');}
 }
 
 function showResult() {
@@ -700,5 +730,6 @@ async function restore() {
 }
 renderAccount(session.user);
 startPresence($('#server-presence'));
-if(inviteParams.has('room')&&!pendingInvite)toast('房间邀请链接无效，请向好友索取完整链接');
-void (pendingInvite?acceptInvite():restore()).then(() => void checkActiveRoom());
+if(inviteParams.has('room')&&!pendingInvite){
+  modal('<h2>房间邀请链接无效</h2><p id="invite-error" role="alert">请向好友索取完整的房间邀请链接。</p><button class="btn ghost wide" id="invite-cancel">返回大厅</button>','paper');$('#invite-cancel').onclick=cancelInvite;void checkActiveRoom();
+}else void (pendingInvite?acceptInvite():restore()).then(() => void checkActiveRoom());

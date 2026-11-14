@@ -90,11 +90,14 @@ export function createStage(canvas: HTMLCanvasElement, events: StageEvents) {
   function layoutHand() {
     const aspect = width / height, portrait = aspect < .9;
     const D = 2.2, halfH = D * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), halfW = halfH * aspect;
-    const n = Math.max(handCards.length, 1), columns = portrait ? Math.min(n, 7) : n, rows = Math.ceil(n / columns), overlap = 1.06;
-    const byWidth = (halfW * 2 * .94) / (CARD_W * (1 + overlap * (Math.max(columns, portrait ? 7 : 13) - 1)));
+    const safe=getComputedStyle(document.documentElement),safeLeft=parseFloat(safe.getPropertyValue('--safe-left'))||0,safeRight=parseFloat(safe.getPropertyValue('--safe-right'))||0;
+    const n = Math.max(handCards.length, 1), columns = portrait ? Math.min(n, n===15?8:7) : n, rows = Math.ceil(n / columns), overlap = 1.06;
+    const byWidth = (halfW * 2 * .94 * Math.max(.5,(width-safeLeft-safeRight)/width)) / (CARD_W * (1 + overlap * (Math.max(columns, portrait ? 7 : 13) - 1)));
     handScale = Math.min(byWidth, (halfH * 2 * (portrait ? .24 : .23)) / (CARD_H * (rows * 1.12 + .2)));
     handLayout = { halfW, halfH, D, overlap };
-    hand.position.set(0, -halfH + CARD_H * handScale * .58 + halfH * .03, -D);
+    const safeBottom=parseFloat(safe.getPropertyValue('--safe-bottom'))||0;
+    const bottomPixels=Math.max(8,height*.015)+safeBottom;
+    hand.position.set((safeLeft-safeRight)*halfW/width, -halfH + CARD_H * handScale * .58 + bottomPixels*halfH*2/height, -D);
     hand.rotation.set(0, 0, 0);
     const step = CARD_W * handScale * overlap;
     handCards.forEach((c, i) => {

@@ -22,8 +22,8 @@ test('平手后清除选择，必须重新手动确认；像素猜拳区横竖�
   await restore(page,g);await page.locator('[data-rps="rock"]').click();await page.locator('#rps-confirm').click();
   await expect(page.locator('.rps-tie')).toContainText('平手');await expect(page.locator('#rps-confirm')).toBeDisabled();
   await page.clock.runFor(60000);expect((await stored(page)).tribute.selection.duel.moves[0]).toBeUndefined();
-  for(const size of [{width:1440,height:1000},{width:390,height:844},{width:844,height:390}]){
-    await page.setViewportSize(size);const box=(await page.locator('.rps-window').boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(size.width);expect(box.y+box.height).toBeLessThanOrEqual(size.height+1);
+  for(const size of [{width:1440,height:1000},{width:320,height:568},{width:390,height:844},{width:568,height:320},{width:844,height:390}]){
+    await page.setViewportSize(size);await page.clock.runFor(80);const box=(await page.locator('.rps-window').boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(size.width);expect(box.y+box.height).toBeLessThanOrEqual(size.height+1);
     await expect(page.locator('#rps-confirm')).toBeInViewport();await page.screenshot({path:`artifacts/manual-rps-${size.width}.png`});
   }
 });
