@@ -2,7 +2,7 @@ import {act,botTributeAction,tributeAction,tributeConflicts,canReturnTribute,cre
 import {miniText} from '../../miniprogram/presentation';
 
 export type Member={name:string;avatar?:unknown;bot?:boolean};
-export type RoomView=GameView&{room:string;roomStatus:'waiting'|'playing'|'finished';canFillBots?:boolean;members:Member[]};
+export type RoomView=GameView&{room:string;roomStatus:'waiting'|'playing'|'finished';canFillBots?:boolean;rankedRound?:boolean;members:Member[]};
 export type Session={token:string;user:{name:string;score:number;games:number;wins:number;avatar?:unknown}};
 export interface GameServices {
   request(path:string,data:unknown|undefined,token:string|null):Promise<any>;

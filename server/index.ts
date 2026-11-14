@@ -9,7 +9,7 @@ import {BOT_AVATARS,DEFAULT_AVATAR,type Avatar} from '../src/core/avatar';
 import {createGame,createNextGame,act,returnTribute,tributeAction,botTributeAction,view,legalMoves,type Game} from '../src/core/game';
 
 const app=express();app.disable('x-powered-by');app.set('trust proxy','loopback');app.use(express.json({limit:'8kb'}));
-type Member={userId:number|null;name:string;avatar:Avatar;bot:boolean};
+type Member={userId:number|null;name:string;avatar:Avatar;bot:boolean;replacedBotRound?:number};
 type Room={id:string;state:Game;members:Member[];status:'waiting'|'playing'|'finished'};
 const createSchema=z.object({practice:z.boolean().default(false)});
 const actionSchema=z.object({version:z.number().int().nonnegative(),cards:z.array(z.object({rank:z.number().int().min(2).max(14),suit:z.number().int().min(0).max(3)})).max(5)});
@@ -25,7 +25,8 @@ app.use('/api',(req,res,next)=>{const o=req.headers.origin;if(o&&APP_ORIGINS.has
 // 公网模式下记录访问日志（不含请求体与令牌），便于排查隧道问题；轮询请求只记慢的或出错的。
 if(process.env.A3_PUBLIC_URL)app.use('/api',(req,res,next)=>{const t=Date.now();res.on('finish',()=>{const ms=Date.now()-t;if(req.method!=='GET'||res.statusCode>=400||ms>500)console.log(`${new Date().toISOString()} ${req.method} ${req.path} ${res.statusCode} ${ms}ms ${clientIp(req)}`);});next();});
 app.use('/api',(req,res,next)=>{const key=clientIp(req),now=Date.now();Object.defineProperty(req,'ip',{value:key,configurable:true});if(limits.size>10000)for(const[k,v]of limits)if(v.until<now)limits.delete(k);let v=limits.get(key);if(!v||v.until<now){v={count:0,until:now+60000};limits.set(key,v);}if(++v.count>RATE_LIMIT)return void res.status(429).json({error:'请求太频繁，请稍后再试'});next();});
-const output=(r:Room,seat:number)=>({...view(r.state,seat),room:r.id,roomStatus:r.status,canFillBots:r.status==='waiting'&&seat===0&&r.members.length<4,members:r.members.map(m=>({name:m.name,bot:m.bot,avatar:m.avatar||DEFAULT_AVATAR}))});
+const rankedRound=(r:Room)=>r.members.length===4&&r.members.every(m=>m.userId!==null&&!m.bot&&m.replacedBotRound!==(r.state.round||1));
+const output=(r:Room,seat:number)=>({...view(r.state,seat),room:r.id,roomStatus:r.status,rankedRound:rankedRound(r),canFillBots:r.status==='waiting'&&seat===0&&r.members.length<4,members:r.members.map(m=>({name:m.name,bot:m.bot,avatar:m.avatar||DEFAULT_AVATAR}))});
 const member=(u:User):Member=>({userId:u.id,name:u.name,avatar:u.avatar,bot:false});
 function bots(r:Room){
   let count=0;
@@ -46,7 +47,7 @@ async function mutate(req:express.Request,res:express.Response,next:express.Next
     if(r.state.status==='finished'){
       const saved=await client.query('INSERT INTO match_results(room_id,round,scores,ranking) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[r.id,r.state.round||1,JSON.stringify(r.state.scores),JSON.stringify(r.state.order)]);
       // 战绩只记四位真人的牌桌，且每局只记一次
-      if(saved.rowCount&&r.members.every(m=>m.userId))for(const[i,m]of r.members.entries())await client.query('UPDATE users SET games=games+1,wins=wins+$2,score=score+$3 WHERE id=$1',[m.userId,r.state.scores[i]>0?1:0,r.state.scores[i]]);
+      if(saved.rowCount&&rankedRound(r))for(const[i,m]of r.members.entries())await client.query('UPDATE users SET games=games+1,wins=wins+$2,score=score+$3 WHERE id=$1',[m.userId,r.state.scores[i]>0?1:0,r.state.scores[i]]);
     }
     await client.query('COMMIT');res.json(output(r,seat));
   }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});next(e);}finally{client?.release();}
@@ -72,15 +73,23 @@ app.post('/api/rooms',requireUser(async(req,res,user)=>{
   await pool.query('INSERT INTO rooms(id,state,members,status) VALUES($1,$2,$3,$4)',[r.id,JSON.stringify(r.state),JSON.stringify(members),r.status]);
   res.status(201).json(output(r,0));
 }));
-// 加入房间；已在房内（例如换了一台设备）则直接回到原座位。
+// 已在房内则回原座位；开局后新玩家接替机器人，沿用原座位的整局状态。
 app.post('/api/rooms/:id/join',requireUser(async(req,res,user)=>{
   const client=await pool.connect();
   try{await client.query('BEGIN');const row=await client.query('SELECT * FROM rooms WHERE id=$1 FOR UPDATE',[req.params.id]);const r=row.rows[0] as Room|undefined;
     let seat=seatOf(r,user);
     if(r&&seat>=0){await client.query('ROLLBACK');return void res.json(output(r,seat));}
-    if(!r||r.status!=='waiting'||r.members.length>=4){await client.query('ROLLBACK');return void res.status(409).json({error:'房间不存在、已满或已开始'});}
-    seat=r.members.length;r.members.push(member(user));if(r.members.length===4)r.status='playing';
-    await client.query('UPDATE rooms SET members=$2,status=$3,updated_at=now() WHERE id=$1',[r.id,JSON.stringify(r.members),r.status]);await client.query('COMMIT');res.json(output(r,seat));
+    if(!r){await client.query('ROLLBACK');return void res.status(409).json({error:'房间不存在或已满'});}
+    let replacedBot=false;
+    if(r.status==='waiting'&&r.members.length<4){seat=r.members.length;r.members.push(member(user));if(r.members.length===4)r.status='playing';}
+    else{
+      const available=(m:Member)=>m.bot&&m.userId===null;
+      seat=r.members.findIndex((m,i)=>available(m)&&r.state.hands[i].length>0);
+      if(seat<0)seat=r.members.findIndex(available);
+      if(seat<0){await client.query('ROLLBACK');return void res.status(409).json({error:'房间已满，暂无可接替的机器人座位'});}
+      r.members[seat]={...member(user),replacedBotRound:r.state.round||1};r.state.version++;replacedBot=true;
+    }
+    await client.query('UPDATE rooms SET members=$2,status=$3,state=$4,updated_at=now() WHERE id=$1',[r.id,JSON.stringify(r.members),r.status,JSON.stringify(r.state)]);await client.query('COMMIT');res.json({...output(r,seat),replacedBot});
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }));
 // 开局前可离席；牌局开始后座位保留，任何设备登录同一账号都能回来。

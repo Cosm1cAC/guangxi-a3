@@ -10,7 +10,7 @@ import { api as request, session, myAvatar, saveGuestAvatar, faceImg, createAcco
 import { AVATAR_OPTIONS, AVATAR_LABELS, AVATAR_KEYS, BOT_AVATARS, DEFAULT_AVATAR, randomAvatar, type Avatar } from '../core/avatar';
 import './style.css';
 
-type Remote = GameView & { room: string; roomStatus: string; canFillBots?: boolean; members: { name: string; bot: boolean; avatar?: Avatar }[] };
+type Remote = GameView & { room: string; roomStatus: string; canFillBots?: boolean; rankedRound?: boolean; replacedBot?: boolean; members: { name: string; bot: boolean; avatar?: Avatar }[] };
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const icon = {
   rules: '<svg viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z"/><path d="M9 8h6M9 12h6"/></svg>',
@@ -320,7 +320,7 @@ function render() {
     info.classList.toggle('ok', !!combo); info.classList.toggle('bad', chosen.length > 0 && !combo);
     $('#play').classList.toggle('ready', myTurn && !!combo);
   }
-  $('#footer-state').textContent = remote ? remote.members.some(m=>m.bot)?'人机同桌 · 积分仅在本房累计，不计账号排行':'房间已保存 · 任意设备登录同一账号可接着打' : '本地练习 · 纯娱乐积分';
+  $('#footer-state').textContent = remote ? (remote.rankedRound===false&&remote.roomStatus!=='waiting'||remote.members.some(m=>m.bot))?'本局有人机参与 · 仅在本房累计，不计账号排行':'房间已保存 · 任意设备登录同一账号可接着打' : '本地练习 · 纯娱乐积分';
   syncAvatars();
   syncStage(s);
   stage?.setSelected(selected);
@@ -538,6 +538,7 @@ function enterRoom(r: Remote) {
   chat.add({ id: -100, seat: -1, name: '', text: `已进入房间 ${r.room}` }, false, true);
   if ($<HTMLDialogElement>('#dialog').open) $<HTMLDialogElement>('#dialog').close();
   enterTable(); render(); watchRoom();
+  if(r.replacedBot)toast('已接替机器人，沿用该座位的手牌和本房积分');
 }
 $('#fill-bots').onclick=async()=>{
   if(busy||!remote?.canFillBots||!roomId)return;
@@ -554,7 +555,7 @@ function openOnline() {
   <div class="divider"><span>已有房号</span></div>
   <label class="field">房间号<input id="room-code" maxlength="10" placeholder="输入好友分享的 10 位房号" autocapitalize="characters"></label>
   <button class="btn ghost wide" id="join-room">加入房间</button>
-  <p class="muted">四人到齐自动开局；人数不足时房主可补齐机器人。人机房积分仅在房内累计，不计账号排行。手机、电脑、小程序登录同一账号即可互通。</p><p id="room-error" role="alert"></p>`, 'paper');
+  <p class="muted">四人到齐自动开局，人数不足可补机器人。开局后好友仍可凭房号加入，直接接替机器人并沿用该座位的手牌、身份和本房积分。本局有人机参与则不计账号排行；下局四位真人可正常计分。</p><p id="room-error" role="alert"></p>`, 'paper');
   const connect = async (join: boolean) => {
     const code = $<HTMLInputElement>('#room-code').value.trim().toUpperCase();
     try {

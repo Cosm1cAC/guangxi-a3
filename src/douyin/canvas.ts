@@ -158,7 +158,7 @@ export class CanvasGame {
         y=this.wrap(this.game.remote?.canFillBots?'可继续邀请好友，或补齐空位立即开局。':'等待好友入座，房主可以补齐机器人开始。',16,y,358,12,colors.muted,20)+14;
         if(this.game.remote?.canFillBots){this.button('fill-bots','补齐机器人并开始',16,y,358,()=>void this.game.fillBots(),true,this.game.canFillBots);y+=70;}
       }
-      if(this.game.remote?.members.some(m=>m.bot))y=this.note('人机同桌 · 房内累计积分，不计账号排行',y);
+      if(this.game.remote&&(this.game.remote.rankedRound===false&&!this.game.waiting||this.game.remote.members.some(m=>m.bot)))y=this.note('本局有人机参与 · 不计账号排行',y);
       const choice=this.game.choosing;
       if(choice){
         this.text('交出牌池 · 双方预选',16,y,17,colors.accent);y+=32;
@@ -230,6 +230,7 @@ export class CanvasGame {
     if(user){
       y=this.wrap(`${user.name} · 积分 ${user.score} · ${user.wins}/${user.games} 胜`,16,y,358,15,colors.ink,26)+18;
       this.button('create-room','创建好友房',16,y,358,()=>void this.connect(),true,!this.game.busy);y+=74;
+      y=this.wrap('开局后可凭房号接替机器人，沿用座位手牌与本房积分。',16,y,358,12,colors.muted,20)+14;
       y=this.field('room','输入 10 位房号',y,10);this.button('join-room','加入房间',16,y,358,()=>void this.connect(this.fields.room),true,!this.game.busy&&/^[a-f0-9]{10}$/i.test(this.fields.room));y+=76;
       this.button('logout','退出账号',16,y,358,()=>{this.game.logout();this.draw();});y+=74;
     }else{
