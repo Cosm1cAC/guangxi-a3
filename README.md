@@ -47,6 +47,10 @@ npx tsx scripts/api-smoke.ts   # 可用 A3_API_BASE 指定 API；两局全流程
 
 ## 微信小程序
 
+`miniprogram/` 是 WXML/WXSS 小程序调试工程，尚未适配 `game.js` / `game.json` 和 Canvas 界面的微信小游戏运行环境，不能直接作为小游戏包上传。山水尖3的对战玩法需要游戏类目账号；普通工具小程序账号不能通过修改名称变成小游戏账号。
+
+2026-11-14 已核对微信官方[小游戏类目设置](https://developers.weixin.qq.com/minigame/introduction/guide/type.html)：注册时需勾选“游戏”，一级类目不可更换，个人主体暂不支持“牌类”。申请正式牌类账号前应先确认可用主体及后台要求。以下是现有小程序工程的开发调试步骤，不代表已具备微信发布条件。
+
 1. `npm run build` 生成小程序 JavaScript bundle，无需在开发者工具中重复构建 npm。
 2. 微信开发者工具导入 `miniprogram/`。将 `project.config.json` 的 touristappid 替换为你的 AppID。
 3. 本地模拟器调试可在开发者工具关闭合法域名校验。真机调试把 `miniprogram/config.ts` 改成电脑的局域网地址（如 `http://192.168.1.10:3001/api`）并勾选「不校验合法域名」；正式发布需改为 HTTPS API 并在微信后台添加 request 合法域名，再构建。
