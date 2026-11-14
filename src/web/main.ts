@@ -3,6 +3,7 @@ import { SoundEngine } from './audio';
 import { createRpsPanel } from './rps';
 import { startPresence } from './presence';
 import { suitSvg, SUIT_NAMES } from '../visual/pixel-art';
+import {roomCode,roomInviteUrl} from '../core/room-invite';
 import { MUSIC_TRACKS, musicTime, type PlayMode } from '../core/music';
 import { createChat, banter, type ChatMsg } from './chat';
 import type { Stage } from './scene/stage';
@@ -33,6 +34,7 @@ app.innerHTML = `
     <button class="icon-btn" id="rules" aria-label="玩法说明" title="玩法说明">${icon.rules}<span>玩法</span></button>
     <button class="icon-btn" id="history" aria-label="出牌记录" title="出牌记录" hidden>${icon.log}<span>记录</span></button>
     <button class="icon-btn" id="chat-btn" aria-label="聊天" title="聊天（C）" hidden>${icon.chat}<span>闲话</span><i class="badge" id="chat-badge" hidden></i></button>
+    <button class="icon-btn" id="share-room" aria-label="分享房间" title="分享房间" hidden><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M10 5H4v15h15v-6"/></svg><span>分享</span></button>
     <button class="icon-btn" id="sound" aria-label="声音设置" title="声音设置" aria-expanded="false">${icon.sound}<span>声音</span></button>
     <button class="icon-btn" id="restart" aria-label="新开一局" title="新开一局" hidden>${icon.home}<span>新局</span></button>
     <button class="icon-btn hide-sm" id="fullscreen" aria-label="全屏" title="全屏">${icon.full}</button>
@@ -279,6 +281,7 @@ function render() {
   for (const b of ['#history', '#restart', '#chat-btn']) $(b).hidden = false;
   $('#mode').textContent = `${remote ? `好友桌 · ${remote.room}` : '练习桌'} · 第 ${s.round} 局`;
   chat.setSubtitle(remote ? `房间 ${remote.room} · ${remote.members.length} 人` : '练习桌 · 三位牌友');
+  $('#share-room').hidden=!remote;
   $('#plates').innerHTML = [1, 2, 3].map(r => plateHTML(s, (s.seat + r) % 4)).join('');
   const me = s.players[s.seat], tributing = s.status === 'tribute', owe = owesReturn(s, s.seat);
   const pendingT = s.tribute?.transfers.find(t => t.to === s.seat && !t.returned);
@@ -507,6 +510,31 @@ $('#restart').onclick = () => {
 
 // ---------- online rooms ----------
 const api = <T = Remote>(path: string, body?: unknown) => request<T>(path, body);
+const inviteKey='a3-room-invite',inviteParams=new URLSearchParams(location.search);
+let pendingInvite=roomCode(inviteParams.has('room')?inviteParams.get('room'):sessionStorage.getItem(inviteKey)),inviteBusy=false;
+if(pendingInvite)sessionStorage.setItem(inviteKey,pendingInvite);
+else if(inviteParams.has('room'))sessionStorage.removeItem(inviteKey);
+function clearInvite(){pendingInvite=null;sessionStorage.removeItem(inviteKey);const url=new URL(location.href);url.searchParams.delete('room');history.replaceState(null,'',url.pathname+url.search+url.hash);}
+function cancelInvite(){clearInvite();$<HTMLDialogElement>('#dialog').close();void restore().then(()=>void checkActiveRoom());}
+function inviteLogin(){
+  account.openLogin();$('#dialog-body').querySelector('h2')?.insertAdjacentHTML('afterend',`<p class="muted invite-context">房间 ${pendingInvite} · 登录或注册后自动加入</p>`);
+  $('#dialog-body').insertAdjacentHTML('beforeend','<button class="btn ghost wide" id="invite-login-cancel">暂不加入</button>');$('#invite-login-cancel').onclick=cancelInvite;
+}
+async function acceptInvite(){
+  const code=pendingInvite;if(!code||inviteBusy)return;if(!session.user){inviteLogin();return;}
+  inviteBusy=true;modal(`<h2>正在加入房间 ${code}</h2><p class="muted">正在连接牌桌…</p>`,'paper');
+  try{const joined=await api(`/rooms/${code}/join`,{});clearInvite();enterRoom(joined);}
+  catch(e){
+    if(!session.user)inviteLogin();
+    else{modal(`<h2>暂未加入房间 ${code}</h2><p id="invite-error" role="alert">${escape(e instanceof Error?e.message:'连接失败，请稍后重试')}</p><button class="btn lacquer wide" id="invite-retry">重试加入</button><button class="btn ghost wide" id="invite-cancel">返回大厅</button>`,'paper');$('#invite-retry').onclick=()=>void acceptInvite();$('#invite-cancel').onclick=cancelInvite;}
+  }finally{inviteBusy=false;}
+}
+$('#share-room').onclick=()=>{
+  if(!remote)return;const url=roomInviteUrl(remote.room);
+  modal(`<h2>邀请好友同桌</h2><p>房号 <b>${remote.room}</b> · 好友点击链接，登录后直接加入。</p><label class="field">房间邀请链接<input id="invite-url" readonly value="${url}" aria-label="房间邀请链接"></label><button class="btn lacquer wide" id="invite-copy">复制邀请链接</button>${typeof navigator.share==='function'?'<button class="btn ghost wide" id="invite-native">系统分享</button>':''}<p class="muted">有空位即可入座；已开局且有机器人时自动接替。链接不包含你的登录信息。</p>`,'paper');
+  $('#invite-copy').onclick=async()=>{const input=$<HTMLInputElement>('#invite-url');try{if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(url);else{input.select();if(!document.execCommand('copy'))throw Error('copy');}toast('邀请链接已复制');$('#invite-copy').textContent='已复制邀请链接';}catch{input.focus();input.select();toast('请长按或选中链接复制');}};
+  const native=$('#invite-native');if(native)native.onclick=()=>void navigator.share({title:'山水尖3 · 好友房',text:'登录后加入我的牌桌',url}).catch(e=>{if(e.name!=='AbortError')toast('可使用复制邀请链接分享');});
+};
 async function pullMessages() {
   if (!roomId) return;
   const { messages } = await api<{ messages: ChatMsg[] }>(`/rooms/${roomId}/messages?after=${lastMsgId}`);
@@ -575,7 +603,8 @@ function renderAccount(u: User | null) {
   syncAvatars(); if (state()) render();
 }
 $('#account').onclick = () => { sound.button(); void account.openProfile(); };
-session.onChange(u => { renderAccount(u); if (u) void checkActiveRoom(); else if (remote) { clearInterval(poll); localStorage.removeItem('a3-room'); location.href = '/'; } });
+let inviteAccountToken=session.token;
+session.onChange(u => { const tokenChanged=inviteAccountToken!==session.token;inviteAccountToken=session.token;renderAccount(u); if (u) {void checkActiveRoom();if(tokenChanged&&pendingInvite)queueMicrotask(()=>void acceptInvite());} else if (remote) { clearInterval(poll); localStorage.removeItem('a3-room'); location.href = '/'; } });
 /** 账号在别处有进行中的牌局：大厅给出「回到牌桌」。 */
 async function checkActiveRoom() {
   if (!session.user) return;
@@ -671,4 +700,5 @@ async function restore() {
 }
 renderAccount(session.user);
 startPresence($('#server-presence'));
-void restore().then(() => void checkActiveRoom());
+if(inviteParams.has('room')&&!pendingInvite)toast('房间邀请链接无效，请向好友索取完整链接');
+void (pendingInvite?acceptInvite():restore()).then(() => void checkActiveRoom());

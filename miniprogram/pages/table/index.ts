@@ -6,6 +6,7 @@ import {miniText} from '../../presentation';
 import {API_BASE} from '../../config';
 import {MUSIC_TRACKS,musicTime,type PlayMode,type MusicPlayer} from '../../../src/core/music';
 import {createNativeMusicPlayer} from '../../../src/core/native-music';
+import {roomInviteUrl} from '../../../src/core/room-invite';
 import {SUIT_GLYPHS,SUIT_NAMES,RPS_GLYPHS,HAND_PALETTE,pixelRows} from '../../../src/visual/pixel-art';
 declare const wx:any;
 declare function Page(options: Record<string, unknown> & ThisType<any>): void;
@@ -82,5 +83,6 @@ Page({
  async fillBots(){if(busy||!remote?.canFillBots||remote.roomStatus!=='waiting')return;busy=true;this.sync();try{remote=await request(`/rooms/${roomId}/fill-bots`,{});selected.clear();this.setData({error:''});}catch(e){this.setData({error:miniText((e as Error).message)});}finally{busy=false;this.sync();}},
  async refresh(){if(!roomId||busy)return;try{const r=await request(`/rooms/${roomId}`);if(busy||r.room!==roomId||remote&&r.version<remote.version)return;if(!remote||remote.version!==r.version||remote.roomStatus!==r.roomStatus||JSON.stringify(remote.members)!==JSON.stringify(r.members)){remote=r;selected.clear();this.sync();}}catch(e){this.setData({error:miniText((e as Error).message)});}},
  watch(){clearInterval(poll);poll=setInterval(()=>this.refresh(),1500);},
- copyRoom(){wx.setClipboardData({data:this.data.room});}
+ copyRoom(){wx.setClipboardData({data:this.data.room});},
+ shareRoom(){if(this.data.room)wx.setClipboardData({data:roomInviteUrl(this.data.room)});}
 });

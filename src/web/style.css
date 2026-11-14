@@ -457,3 +457,4 @@ dialog h2{padding-right:76px}
 
 .room-waiting{position:fixed;left:50%;bottom:calc(var(--hand-top) + 8px);transform:translateX(-50%);width:min(520px,calc(100vw - 32px));padding:16px;text-align:center;background:#27372c;border:3px solid #829367;box-shadow:inset 2px 2px #e9f1d42b,4px 4px #0006}.room-waiting p{font-size:13px;line-height:1.6;margin:0 0 12px;color:#d4e1c2}.room-waiting .btn{max-width:100%;min-height:44px}.game-panel.waiting .dock{display:none}.who .bot-badge{display:inline-block;margin-left:6px;padding:2px 4px;background:#486044;color:#d4e6b5;font:10px var(--sans);vertical-align:middle;letter-spacing:0}@media(max-height:520px){.room-waiting{padding:8px}.room-waiting p{font-size:11px;margin:0 0 6px}.room-waiting .btn{padding:8px 14px}}
 .game-panel.waiting .me{display:none}
+@media(max-width:360px){.hud-top nav{gap:4px}.hud-top .icon-btn{width:32px;min-width:32px;padding:0}.hud-top .icon-btn.account{padding:0}}
