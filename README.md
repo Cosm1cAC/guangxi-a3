@@ -37,6 +37,7 @@ node scripts/start.mjs
 - **人物形象**：大厅「我的形象」可调肤色、发型、发色、瞳色、上衣、裤子、帽子（斗笠、壮锦头巾、草帽…）和配饰，3D 实时预览、可拖动旋转。游客形象存在本机，注册时带入账号；登录后保存到账号，入座时牌友看到的就是这个方块人，名牌和聊天里是对应的像素头像。
 - **多端互通**：服务端跑在本机并监听局域网。启动窗口和资料页会给出形如 `http://192.168.x.x:5173` 的地址与二维码，手机、平板连同一 Wi‑Fi 打开即可；任何设备登录同一账号，形象、积分以及进行中的牌局都在（大厅出现「回到牌桌」）。首次使用若其他设备打不开，请在 Windows 防火墙弹窗中允许 Node.js 访问专用网络。
 - **战绩与积分榜**：四位真人的好友局结算后累计到账号，资料页可看积分榜。
+- **人数不足可补机器人**：好友房等待时，房主点击「补齐机器人并开始」，保留已入座真人，只补空位至四人并立即开局；机器人座位有明确标识。房主离席后，由等待房内首位玩家接任。机器人会继续参与出牌、局间换牌和下一局；混合房积分只在房内累计，不计入账号战绩与排行榜。网页、安卓、微信及抖音端使用同一房间接口。
 
 微信正式扫码使用微信开放平台审核通过的**网站应用**及其微信登录权限（`snsapi_login`），不能填小程序、公众号或开放平台账号本身的 AppID。服务器 `.env` 填 `WECHAT_APP_ID`、`WECHAT_APP_SECRET`、`WECHAT_REDIRECT_BASE=https://a3.vibelink.cloud`；平台「授权回调域」填写 `a3.vibelink.cloud`，实际回调地址为 `https://a3.vibelink.cloud/api/auth/wechat/callback`。固定入口已代理 `/api/`，不需要随免费 cpolar 地址变化而修改回调域。域名与应用材料仍需符合平台审核要求。
 
@@ -45,6 +46,7 @@ node scripts/start.mjs
 ```powershell
 npm test
 npx tsx scripts/accounts-smoke.ts # 使用隔离 PostgreSQL schema 与本机 SMTP 收件器验证账号和浏览器流程
+npx tsx scripts/room-bots-smoke.ts --browser # 临时 schema 验证补位、并发、换牌和手机界面，结束自动清理
 npm run build
 npm run test:e2e
 npx tsx scripts/api-smoke.ts   # 可用 A3_API_BASE 指定 API；两局全流程请求较多，测试服务可设 A3_RATE_LIMIT=5000

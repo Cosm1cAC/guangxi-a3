@@ -25,7 +25,7 @@ app.use('/api',(req,res,next)=>{const o=req.headers.origin;if(o&&APP_ORIGINS.has
 // 公网模式下记录访问日志（不含请求体与令牌），便于排查隧道问题；轮询请求只记慢的或出错的。
 if(process.env.A3_PUBLIC_URL)app.use('/api',(req,res,next)=>{const t=Date.now();res.on('finish',()=>{const ms=Date.now()-t;if(req.method!=='GET'||res.statusCode>=400||ms>500)console.log(`${new Date().toISOString()} ${req.method} ${req.path} ${res.statusCode} ${ms}ms ${clientIp(req)}`);});next();});
 app.use('/api',(req,res,next)=>{const key=clientIp(req),now=Date.now();Object.defineProperty(req,'ip',{value:key,configurable:true});if(limits.size>10000)for(const[k,v]of limits)if(v.until<now)limits.delete(k);let v=limits.get(key);if(!v||v.until<now){v={count:0,until:now+60000};limits.set(key,v);}if(++v.count>RATE_LIMIT)return void res.status(429).json({error:'请求太频繁，请稍后再试'});next();});
-const output=(r:Room,seat:number)=>({...view(r.state,seat),room:r.id,roomStatus:r.status,members:r.members.map(m=>({name:m.name,bot:m.bot,avatar:m.avatar||DEFAULT_AVATAR}))});
+const output=(r:Room,seat:number)=>({...view(r.state,seat),room:r.id,roomStatus:r.status,canFillBots:r.status==='waiting'&&seat===0&&r.members.length<4,members:r.members.map(m=>({name:m.name,bot:m.bot,avatar:m.avatar||DEFAULT_AVATAR}))});
 const member=(u:User):Member=>({userId:u.id,name:u.name,avatar:u.avatar,bot:false});
 function bots(r:Room){
   let count=0;
@@ -42,7 +42,7 @@ async function mutate(req:express.Request,res:express.Response,next:express.Next
     let failed=false;const fail=async(status:number,error:string)=>{failed=true;await client!.query('ROLLBACK');res.status(status).json({error});};
     if(!r||seat<0)return await fail(403,'你不在这个房间里');
     await fn(r,seat,fail);if(failed)return;
-    await client.query('UPDATE rooms SET state=$2,status=$3,updated_at=now() WHERE id=$1',[r.id,JSON.stringify(r.state),r.status]);
+    await client.query('UPDATE rooms SET state=$2,status=$3,members=$4,updated_at=now() WHERE id=$1',[r.id,JSON.stringify(r.state),r.status,JSON.stringify(r.members)]);
     if(r.state.status==='finished'){
       const saved=await client.query('INSERT INTO match_results(room_id,round,scores,ranking) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[r.id,r.state.round||1,JSON.stringify(r.state.scores),JSON.stringify(r.state.order)]);
       // 战绩只记四位真人的牌桌，且每局只记一次
@@ -94,6 +94,15 @@ app.post('/api/rooms/:id/leave',requireUser(async(req,res,user)=>{
   }catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
 }));
 app.get('/api/rooms/:id',requireUser(async(req,res,user)=>{const row=await pool.query('SELECT * FROM rooms WHERE id=$1',[req.params.id]);const r=row.rows[0] as Room|undefined;const seat=seatOf(r,user);if(!r||seat<0)return void res.status(403).json({error:'你不在这个房间里'});res.json(output(r,seat));}));
+// 等待时首位真人是房主；与加入、离席共用行锁，机器人只能占空位。
+app.post('/api/rooms/:id/fill-bots',(req,res,next)=>{
+  void mutate(req,res,next,async(r,seat,fail)=>{
+    if(seat!==0)return fail(403,'只有房主可以补齐机器人');
+    if(r.status!=='waiting'||r.members.length>=4)return fail(409,'房间已满或已开始，请刷新牌桌');
+    for(let i=0;r.members.length<4;i++)r.members.push({userId:null,name:['阿桂','小漓','老邕'][i],avatar:BOT_AVATARS[i],bot:true});
+    r.status='playing';r.state.version++;bots(r);
+  });
+});
 app.post('/api/rooms/:id/actions',(req,res,next)=>{
   const parsed=actionSchema.safeParse(req.body);if(!parsed.success)return void res.status(400).json({error:'出牌请求格式不正确'});
   void mutate(req,res,next,async(r,seat,fail)=>{

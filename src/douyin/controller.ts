@@ -2,7 +2,7 @@ import {act,botTributeAction,tributeAction,tributeConflicts,canReturnTribute,cre
 import {miniText} from '../../miniprogram/presentation';
 
 export type Member={name:string;avatar?:unknown;bot?:boolean};
-export type RoomView=GameView&{room:string;roomStatus:'waiting'|'playing'|'finished';members:Member[]};
+export type RoomView=GameView&{room:string;roomStatus:'waiting'|'playing'|'finished';canFillBots?:boolean;members:Member[]};
 export type Session={token:string;user:{name:string;score:number;games:number;wins:number;avatar?:unknown}};
 export interface GameServices {
   request(path:string,data:unknown|undefined,token:string|null):Promise<any>;
@@ -32,6 +32,7 @@ export class DouyinGame {
   }
   get state():GameView|null{return this.remote||(this.local?view(this.local,0):null);}
   get waiting(){return this.remote?.roomStatus==='waiting';}
+  get canFillBots(){return !!this.waiting&&!!this.remote?.canFillBots&&!this.busy;}
   get choosing(){return this.state?.status==='tribute'?this.state.tribute?.selection:null;}
   get pending(){const s=this.state;return s?.tribute?.transfers.find(t=>t.to===s.seat&&!t.returned);}
   get canAct(){const s=this.state;return !!s&&!this.waiting&&!this.busy&&(s.status==='tribute'?this.choosing?!!this.choosing.quotas[s.seat]&&!this.choosing.locked.includes(s.seat)&&!this.choosing.duel:!!this.pending:s.status==='playing'&&s.turn===s.seat);}
@@ -110,11 +111,16 @@ export class DouyinGame {
     finally{this.busy=false;this.notify();}
   }
   attach(room:RoomView){this.stop();this.remote=room;this.local=null;this.selected.clear();this.services.put('a3-douyin-room',room.room);this.watch();this.notify();}
+  async fillBots(){const room=this.remote;if(!room||!this.canFillBots||!this.session)return;this.busy=true;this.error='';this.notify();
+    try{const result=await this.services.request(`/rooms/${room.room}/fill-bots`,{},this.session.token);if(this.remote?.room===room.room){this.remote=result;this.selected.clear();}}
+    catch(e){this.error=miniText(e instanceof Error?e.message:String(e));}
+    finally{this.busy=false;this.notify();}
+  }
   async refresh(){const room=this.remote;if(!room||!this.session||this.busy||this.hidden)return;
     const generation=this.generation;
     try{const result:RoomView=await this.services.request(`/rooms/${room.room}`,undefined,this.session.token);
-      if(this.generation!==generation||this.remote?.room!==room.room)return;
-      if(result.version!==room.version||result.members.length!==room.members.length||result.roomStatus!==room.roomStatus){this.remote=result;this.selected.clear();this.error='';this.notify();}
+      if(this.generation!==generation||this.remote?.room!==room.room||this.busy||result.version<this.remote.version)return;
+      if(result.version!==room.version||JSON.stringify(result.members)!==JSON.stringify(room.members)||result.roomStatus!==room.roomStatus){this.remote=result;this.selected.clear();this.error='';this.notify();}
     }catch(e){if(this.generation===generation){this.error=miniText(e instanceof Error?e.message:String(e));this.notify();}}
   }
   async restore(){const code=this.services.get('a3-douyin-room');if(this.session&&typeof code==='string'&&/^[A-F0-9]{10}$/.test(code))await this.enterRoom(code);}

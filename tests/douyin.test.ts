@@ -6,6 +6,15 @@ import {createGame,createNextGame,view,id,isIdentity,isOpeningCard,canReturnTrib
 const make=()=>new DouyinGame({get:()=>null,put(){},remove(){},request:async()=>{throw Error('unexpected request');}});
 afterEach(()=>vi.useRealTimers());
 
+test('Douyin waiting-room host can fill empty seats; guests cannot send that request',async()=>{
+  const waiting={...view(createGame(),0),room:'0123456789',roomStatus:'waiting' as const,canFillBots:true,members:[{name:'房主',bot:false}]};
+  const filled={...waiting,version:waiting.version+1,roomStatus:'playing' as const,canFillBots:false,members:[...waiting.members,...[1,2,3].map(i=>({name:'机器人'+i,bot:true}))]};
+  const request=vi.fn(async()=>filled),game=new DouyinGame({get:()=>null,put(){},remove(){},request});
+  game.session={token:'account-token',user:{name:'房主',score:0,games:0,wins:0}};game.attach(waiting);expect(game.canFillBots).toBe(true);
+  await game.fillBots();expect(request).toHaveBeenCalledWith('/rooms/0123456789/fill-bots',{},'account-token');expect(game.state?.players).toHaveLength(4);expect(game.remote?.members.filter(m=>m.bot)).toHaveLength(3);expect(game.canFillBots).toBe(false);
+  await game.fillBots();expect(request).toHaveBeenCalledTimes(1);game.attach({...waiting,seat:1,canFillBots:false});await game.fillBots();expect(request).toHaveBeenCalledTimes(1);game.dispose();
+});
+
 test('Douyin RPS waits for a manual confirmation and clears the draft after a tie',async()=>{
   vi.useFakeTimers();const game=make();game.pause();
   let g=createNextGame({...createGame(),status:'finished',teams:[1,1,0,0],order:[0,1,2,3],scores:[2,2,-2,-2]});

@@ -9,11 +9,12 @@
  <text wx:if="{{musicError}}" class="error">{{musicError}}</text><button wx:if="{{musicError}}" bindtap="retryMusic">重试当前曲目</button><text class="music-credit">预置曲目均为 CC0，作者信息见曲目列表。</text></view>
  <view wx:if="{{!started}}" class="welcome"><text class="eyebrow">好友同桌 · 像素牌局</text><text class="title">四位牌友，即刻开局。</text><text>♠A 与 ♠3 同队 · 双牌单人组队 · ♦4 首出</text></view>
  <view class="table-wrap"><canvas type="webgl" id="table" class="canvas"/><view wx:if="{{!started}}" class="emblem">A · 3</view>
-  <view wx:for="{{players}}" wx:key="seat" class="player seat-{{item.relative}} {{item.active?'active':''}}"><view class="who"><view class="face"><view wx:for="{{item.face}}" wx:for-item="row" wx:key="*this" class="face-row" style="{{row}}"/></view><text>{{item.name}}</text></view><text class="small">{{item.rank?'第 '+item.rank+' 名':item.count+' 张'}} · {{item.identity}}</text></view>
+  <view wx:for="{{players}}" wx:key="seat" class="player seat-{{item.relative}} {{item.active?'active':''}}"><view class="who"><view class="face"><view wx:for="{{item.face}}" wx:for-item="row" wx:key="*this" class="face-row" style="{{row}}"/></view><text>{{item.name}}{{item.bot?' · 机器人':''}}</text></view><text class="small">{{item.rank?'第 '+item.rank+' 名':item.count+' 张'}} · {{item.identity}}</text></view>
   <view wx:if="{{started}}" class="message table-message">{{message}}</view>
   <view class="trick"><text wx:for="{{last}}" wx:key="text" class="mini-card {{item.red?'red':''}}">{{item.text}}</text></view>
  </view>
  <view wx:if="{{heldIdentity}}" class="identity-note"><text class="note-label">身份牌提醒</text>你持有 {{heldIdentity}}</view><view wx:if="{{playedIdentity}}" class="identity-note"><text class="note-label">桌面提醒</text>{{playedIdentity}}</view><view wx:if="{{!started}}" class="message">{{message}}</view><view wx:if="{{room}}" class="room" bindtap="copyRoom">房号 {{room}} · 点击复制</view>
+ <view wx:if="{{waiting}}" class="room-waiting"><text>{{canFillBots?'可继续邀请好友，或补齐空位立即开局。':'等待好友入座，房主可以补齐机器人开始。'}}</text><button wx:if="{{canFillBots}}" class="primary" bindtap="fillBots" disabled="{{fillingBots}}">{{fillingBots?'正在补齐…':'补齐机器人并开始'}}</button></view><text wx:if="{{mixedRoom}}" class="room-note">人机同桌 · 房内累计积分，不计账号排行</text>
  <view wx:if="{{choiceStage}}" class="choice-panel">
   <text class="result-title">交出牌池 · 双方预选</text><text>你可选 {{choiceQuota}} 张，已选 {{choiceCount}} 张；无冲突才分牌。</text>
   <view class="choice-pool"><button wx:for="{{tributePool}}" wx:key="index" bindtap="chooseTribute" data-index="{{item.index}}" disabled="{{item.disabled}}" class="pool-card {{item.red?'red':''}} {{item.picked?'picked':''}} {{item.conflict?'conflict':''}}"><text>{{item.label}}</text><text>{{item.from}} 交出</text><text>{{item.owners}}</text></button></view>

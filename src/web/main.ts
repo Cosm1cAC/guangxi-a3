@@ -10,7 +10,7 @@ import { api as request, session, myAvatar, saveGuestAvatar, faceImg, createAcco
 import { AVATAR_OPTIONS, AVATAR_LABELS, AVATAR_KEYS, BOT_AVATARS, DEFAULT_AVATAR, randomAvatar, type Avatar } from '../core/avatar';
 import './style.css';
 
-type Remote = GameView & { room: string; roomStatus: string; members: { name: string; bot: boolean; avatar?: Avatar }[] };
+type Remote = GameView & { room: string; roomStatus: string; canFillBots?: boolean; members: { name: string; bot: boolean; avatar?: Avatar }[] };
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const icon = {
   rules: '<svg viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z"/><path d="M9 8h6M9 12h6"/></svg>',
@@ -83,6 +83,7 @@ app.innerHTML = `
 <div id="trick" class="flat-only"></div>
 
 <section class="game-panel" id="game-panel" hidden>
+  <div class="room-waiting glass" id="room-waiting" hidden><p id="room-waiting-note"></p><button class="btn lacquer" id="fill-bots">补齐机器人并开始</button></div>
   <div class="me glass" id="me"></div>
   <div class="identity-reminders" aria-live="polite"><div id="identity-held"></div><div id="identity-played"></div></div>
   <div class="dock">
@@ -270,7 +271,7 @@ function plateHTML(s: GameView, seat: number) {
   const ident = p.identity === '身份未明' ? '' : `<em class="ident ${p.identity === '农民方' ? 'farmer' : 'a3'}">${p.identity}</em>`;
   const status = p.rank ? `<span class="rank r${p.rank}">第${cn[p.rank - 1]}名</span>` : `<span class="count${p.count === 1 ? ' warn' : ''}"><i class="mini-back"></i>${p.count}${p.count === 1 ? ' · 报单' : ''}</span>`;
   const total = s.round > 1 || s.status === 'finished' ? `<span class="total ${s.totals[seat] > 0 ? 'up' : s.totals[seat] < 0 ? 'down' : ''}">${signed(s.totals[seat])}</span>` : '';
-  return `<div class="plate glass seat-${r} ${active ? 'active' : ''}" data-rel="${r}"><div class="avatar">${seatAvatar(seat) ? faceImg(seatAvatar(seat)!) : '?'}</div><div class="who"><b>${escape(playerName(seat))}</b><div class="tags">${status}${ident}${total}</div></div>${active ? '<div class="thinking"><i></i><i></i><i></i></div>' : ''}<div class="bubble" data-bubble></div></div>`;
+  return `<div class="plate glass seat-${r} ${active ? 'active' : ''}" data-rel="${r}"><div class="avatar">${seatAvatar(seat) ? faceImg(seatAvatar(seat)!) : '?'}</div><div class="who"><b>${escape(playerName(seat))}${remote?.members[seat]?.bot?'<span class="bot-badge">机器人</span>':''}</b><div class="tags">${status}${ident}${total}</div></div>${active ? '<div class="thinking"><i></i><i></i><i></i></div>' : ''}<div class="bubble" data-bubble></div></div>`;
 }
 function render() {
   const s = state(); if (!s) return;
@@ -290,6 +291,11 @@ function render() {
   document.querySelectorAll<HTMLButtonElement>('[data-card]').forEach(b => b.onclick = () => toggleCard(b.dataset.card!));
   $('#trick').innerHTML = s.last ? `<small>${escape(playerName(s.last.seat))} · ${classify(s.last.cards)!.kind}</small><div>${s.last.cards.map(c => `<span class="mini-card ${red(c) ? 'red' : ''}">${rankLabel(c.rank)}<i class="suit-icon">${suitSvg(c.suit)}</i></span>`).join('')}</div>` : '';
   const waiting = remote?.roomStatus === 'waiting', myTurn = s.turn === s.seat && s.status === 'playing' && !waiting;
+  $('#room-waiting').hidden=!waiting;
+  $('#game-panel').classList.toggle('waiting',!!waiting);
+  $('#room-waiting-note').textContent=waiting?(remote!.canFillBots?`还差 ${4-remote!.members.length} 人，可继续邀请好友，或补齐机器人立即开局。`:'等待好友入座，房主可以补齐机器人开始。'):'';
+  $('#fill-bots').hidden=!remote?.canFillBots;$<HTMLButtonElement>('#fill-bots').disabled=busy;
+  $('#fill-bots').textContent=busy?'正在补齐…':'补齐机器人并开始';
   const banner = $('#turn-banner');
   const waitingFor = s.tribute?.transfers.filter(t => !t.returned).map(t => playerName(t.to)).filter((v, i, a) => a.indexOf(v) === i).join('、');
   banner.innerHTML = waiting ? `等待牌友入座 · ${remote!.members.length}/4 · 房号 <b class="room-code">${remote!.room}</b>`
@@ -314,7 +320,7 @@ function render() {
     info.classList.toggle('ok', !!combo); info.classList.toggle('bad', chosen.length > 0 && !combo);
     $('#play').classList.toggle('ready', myTurn && !!combo);
   }
-  $('#footer-state').textContent = remote ? '房间已保存 · 任意设备登录同一账号可接着打' : '本地练习 · 纯娱乐积分';
+  $('#footer-state').textContent = remote ? remote.members.some(m=>m.bot)?'人机同桌 · 积分仅在本房累计，不计账号排行':'房间已保存 · 任意设备登录同一账号可接着打' : '本地练习 · 纯娱乐积分';
   syncAvatars();
   syncStage(s);
   stage?.setSelected(selected);
@@ -515,7 +521,8 @@ function watchRoom() {
     polling = true;
     try {
       const next = await api(`/rooms/${roomId}`);
-      if (!remote || next.version !== remote.version || next.members.length !== remote.members.length) {
+      if(busy||next.room!==roomId||remote&&next.version<remote.version)return;
+      if (!remote || next.version !== remote.version || next.roomStatus!==remote.roomStatus || JSON.stringify(next.members)!==JSON.stringify(remote.members)) {
         if (remote && next.members.length > remote.members.length) { sound.bell(990, .06); chat.add({ id: -next.members.length, seat: -1, name: '', text: `${next.members.at(-1)!.name} 入座了` }, false, true); }
         remote = next; selected.clear(); render();
       }
@@ -532,6 +539,13 @@ function enterRoom(r: Remote) {
   if ($<HTMLDialogElement>('#dialog').open) $<HTMLDialogElement>('#dialog').close();
   enterTable(); render(); watchRoom();
 }
+$('#fill-bots').onclick=async()=>{
+  if(busy||!remote?.canFillBots||!roomId)return;
+  busy=true;render();
+  try{remote=await api(`/rooms/${roomId}/fill-bots`,{});selected.clear();sound.bell(990,.06);}
+  catch(e){toast(e instanceof Error?e.message:'补齐机器人失败');try{remote=await api(`/rooms/${roomId}`);}catch{}}
+  finally{busy=false;render();}
+};
 function openOnline() {
   const u = session.user; if (!u) return account.openLogin(openOnline);
   modal(`<div class="seal">邀</div><div class="eyebrow">邀请好友 · 四人同桌</div><h2>茶亭已备，等你入座。</h2>
@@ -540,7 +554,7 @@ function openOnline() {
   <div class="divider"><span>已有房号</span></div>
   <label class="field">房间号<input id="room-code" maxlength="10" placeholder="输入好友分享的 10 位房号" autocapitalize="characters"></label>
   <button class="btn ghost wide" id="join-room">加入房间</button>
-  <p class="muted">四人到齐自动开局；房内可聊天，多局累计并进贡。手机、电脑、小程序登录同一账号即可互通。</p><p id="room-error" role="alert"></p>`, 'paper');
+  <p class="muted">四人到齐自动开局；人数不足时房主可补齐机器人。人机房积分仅在房内累计，不计账号排行。手机、电脑、小程序登录同一账号即可互通。</p><p id="room-error" role="alert"></p>`, 'paper');
   const connect = async (join: boolean) => {
     const code = $<HTMLInputElement>('#room-code').value.trim().toUpperCase();
     try {

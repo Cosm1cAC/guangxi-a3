@@ -127,7 +127,7 @@ export class CanvasGame {
   }
   private player(seat:number,x:number,y:number,w:number){const s=this.game.state!;const p=s.players[seat];
     this.box(x,y,w,58,colors.panel,s.turn===seat?colors.accent:colors.edge);this.avatar(seat,x+8,y+8);
-    this.text(this.fitted(this.game.name(seat),w-47,12),x+40,y+10,12);this.text(this.fitted(`${p.rank?'第'+p.rank+'名':p.count+' 张'} · ${miniText(p.identity)}`,w-12,10),x+6,y+39,10,colors.muted);
+    this.text(this.fitted(this.game.name(seat)+(this.game.remote?.members[seat]?.bot?' · 机器人':''),w-47,12),x+40,y+10,12);this.text(this.fitted(`${p.rank?'第'+p.rank+'名':p.count+' 张'} · ${miniText(p.identity)}`,w-12,10),x+6,y+39,10,colors.muted);
   }
   private poly(points:number[][],color:string){this.ctx.beginPath();points.forEach(([x,y],i)=>i?this.ctx.lineTo(x,y):this.ctx.moveTo(x,y));this.ctx.closePath();this.ctx.fillStyle=color;this.ctx.fill();}
   private scene(y:number){
@@ -154,6 +154,11 @@ export class CanvasGame {
       if(this.game.heldIdentity)y=this.note('身份牌提醒 · 你持有 '+this.game.heldIdentity,y);
       if(this.game.playedIdentity)y=this.note('桌面提醒 · '+this.game.playedIdentity,y);
       if(this.game.remote){const room=this.game.remote.room;this.button('copy-room','房号 '+room+' · 复制',16,y,358,()=>this.tt.setClipboardData({data:room}),false,true,44);y+=56;}
+      if(this.game.waiting){
+        y=this.wrap(this.game.remote?.canFillBots?'可继续邀请好友，或补齐空位立即开局。':'等待好友入座，房主可以补齐机器人开始。',16,y,358,12,colors.muted,20)+14;
+        if(this.game.remote?.canFillBots){this.button('fill-bots','补齐机器人并开始',16,y,358,()=>void this.game.fillBots(),true,this.game.canFillBots);y+=70;}
+      }
+      if(this.game.remote?.members.some(m=>m.bot))y=this.note('人机同桌 · 房内累计积分，不计账号排行',y);
       const choice=this.game.choosing;
       if(choice){
         this.text('交出牌池 · 双方预选',16,y,17,colors.accent);y+=32;

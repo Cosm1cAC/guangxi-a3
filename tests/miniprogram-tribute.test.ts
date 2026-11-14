@@ -4,6 +4,17 @@ import { build } from 'esbuild';
 import { runInNewContext } from 'node:vm';
 import { createGame, createNextGame, tributeAction, isOpeningCard, isIdentity, canReturnTribute, id, view, type TributeAction } from '../src/core/game';
 
+test('小程序等待房主可补齐机器人，客人和已开局的房间不提交请求',async()=>{
+  const bundle=await build({entryPoints:['miniprogram/pages/table/index.ts'],bundle:true,write:false,platform:'node',format:'cjs',external:['threejs-miniprogram']});
+  let page:any,calls=0;
+  const waiting={...view(createGame(),0),room:'1234567890',roomStatus:'waiting',canFillBots:true,members:[{name:'房主',bot:false}]};
+  const filled={...waiting,version:waiting.version+1,roomStatus:'playing',canFillBots:false,members:[...waiting.members,...[1,2,3].map(i=>({name:'机器人'+i,bot:true}))]};
+  runInNewContext(bundle.outputFiles[0].text,{exports:{},require:()=>({}),Page:(options:any)=>{page=options;},wx:{setStorageSync(){},request(r:any){calls++;expect(r.url).toContain('/rooms/1234567890/fill-bots');r.success({statusCode:200,data:filled});}},setTimeout,clearTimeout,setInterval:()=>0,clearInterval});
+  page.setData=(patch:any)=>Object.assign(page.data,patch);page.enter(waiting);expect(page.data.canFillBots).toBe(true);
+  await page.fillBots();expect(calls).toBe(1);expect(page.data.waiting).toBe(false);expect(page.data.mixedRoom).toBe(true);expect(page.data.players.filter((p:any)=>p.bot)).toHaveLength(3);
+  await page.fillBots();page.enter({...waiting,seat:1,canFillBots:false});await page.fillBots();expect(calls).toBe(1);page.onUnload();
+});
+
 test('小程序还贡禁选 ♦4 和身份牌，提示选合法牌，大贡需确认两张', async()=>{
   const bundle=await build({entryPoints:['miniprogram/pages/table/index.ts'],bundle:true,write:false,platform:'node',format:'cjs',external:['threejs-miniprogram']});
   let page:any;
