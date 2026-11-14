@@ -1,7 +1,7 @@
 // 账号面板：邮箱注册 / 登录、微信扫码、个人资料、多端互通二维码、排行榜、手机端扫码确认。
 import { headPixels, normalizeAvatar, randomAvatar, avatarKey, type Avatar } from '../core/avatar';
 
-export type User = { id: number; name: string; email: string | null; avatar: Avatar; games: number; wins: number; score: number; wechat: boolean };
+export type User = { id: number; username: string | null; name: string; email: string | null; emailVerified: boolean; avatar: Avatar; games: number; wins: number; score: number; wechat: boolean };
 type Session = { token: string; user: User };
 type AuthResult = { token: string; user: User };
 
@@ -130,27 +130,24 @@ const msg = (e: unknown) => e instanceof Error ? e.message : '请求失败';
 type Deps = { modal: (html: string, cls?: string) => void; close: () => void; toast: (s: string) => void; error: () => void; openWardrobe: () => void; canDress: () => boolean };
 export function createAccount(d: Deps) {
   const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySelector<T>(s)!;
-  const dialog = $<HTMLDialogElement>('#dialog');
-  let scanTimer: ReturnType<typeof setInterval> | undefined;
-  dialog.addEventListener('close', () => clearInterval(scanTimer));
-  let config: { emailCode: boolean; wechat: 'real' | 'mock' | 'off'; mini: boolean } | null = null;
+  let config: { emailCode: boolean } | null = null;
   const getConfig = async () => config ??= await api<NonNullable<typeof config>>('/auth/config');
 
   // ---------- 登录 / 注册 ----------
-  function openLogin(after?: () => void, tab: 'email' | 'scan' = 'email') {
+  function openLogin(after?: () => void) {
     d.modal(`<div class="seal">户</div><div class="eyebrow">账号 · 多端互通</div><h2>登录山水尖3</h2>
-    <div class="tabs" role="tablist"><button role="tab" data-tab="email">邮箱</button><button role="tab" data-tab="scan">微信扫码</button></div>
-    <form data-pane="email" id="au-form" novalidate>
-      <label class="field">邮箱<input id="au-email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+    <form id="au-form" novalidate>
+      <label class="field"><span id="au-identity-label">账号名或邮箱</span><input id="au-email" type="text" autocomplete="username" placeholder="账号名或邮箱地址"></label>
       <label class="field">密码<input id="au-pass" type="password" autocomplete="current-password" placeholder="至少 8 位"></label>
       <div id="au-reg" hidden>
+        <label class="field">账号名<input id="au-username" maxlength="24" autocomplete="username" placeholder="3–24 位字母、数字或下划线"></label>
+        <p class="muted">账号名用于登录，不区分大小写；昵称显示在牌桌上。</p>
         <label class="field">昵称<input id="au-name" maxlength="12" placeholder="牌桌上显示的名字" autocomplete="nickname"></label>
-        <div class="code-row" id="au-code-row" hidden><label class="field">邮箱验证码<input id="au-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label><button type="button" class="btn ghost" id="au-send">发送验证码</button></div>
+        <div class="code-row" id="au-code-row" hidden><label class="field">邮箱验证码（可选）<input id="au-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label><button type="button" class="btn ghost" id="au-send">发送验证码</button></div>
       </div>
       <button class="btn lacquer wide" id="au-submit" type="submit">登录</button>
       <button type="button" class="link" id="au-switch">没有账号？用邮箱注册</button>
     </form>
-    <div data-pane="scan" hidden><div class="scan-box" id="scan-box"></div><p class="muted" id="scan-tip"></p></div>
     ${isApp ? `<button type="button" class="link" id="au-server">服务器：${esc(shareOrigin().replace(/^https?:\/\//, ''))} · 更改</button>` : ''}
     <p id="au-error" class="form-error" role="alert"></p>`, 'paper');
     const err = $('#au-error'); let register = false;
@@ -158,10 +155,12 @@ export function createAccount(d: Deps) {
       const next = prompt('服务器地址（留空恢复默认）。局域网示例：http://192.168.1.10:3001', shareOrigin());
       if (next === null) return;
       if (!setServer(next)) return void (err.textContent = '服务器地址无效');
-      config = null; session.set(null); openLogin(after, tab);   // 换服务器后账号需重新登录
+      config = null; session.set(null); openLogin(after);   // 换服务器后账号需重新登录
     };
     const done = (r: AuthResult) => { session.set(r); d.close(); d.toast(`欢迎，${r.user.name}`); after?.(); };
     const setRegister = async (on: boolean) => {
+      $('#au-identity-label').textContent = on ? '邮箱' : '账号名或邮箱';
+      const identity = $<HTMLInputElement>('#au-email'); identity.type = on ? 'email' : 'text'; identity.autocomplete = on ? 'email' : 'username'; identity.placeholder = on ? 'you@example.com' : '账号名或邮箱地址';
       register = on; $('#au-reg').hidden = !on; $('#au-submit').textContent = on ? '注册并登录' : '登录'; $('#au-switch').textContent = on ? '已有账号？直接登录' : '没有账号？用邮箱注册';
       $<HTMLInputElement>('#au-pass').autocomplete = on ? 'new-password' : 'current-password'; err.textContent = '';
       if (on) { try { $('#au-code-row').hidden = !(await getConfig()).emailCode; } catch { /* 注册时服务端仍会校验 */ } }
@@ -176,60 +175,42 @@ export function createAccount(d: Deps) {
       e.preventDefault(); const b = $<HTMLButtonElement>('#au-submit'); b.disabled = true; err.textContent = '';
       const email = $<HTMLInputElement>('#au-email').value.trim(), password = $<HTMLInputElement>('#au-pass').value;
       try {
-        if (!/^\S+@\S+\.\S+$/.test(email)) throw Error('请输入有效的邮箱地址');
         if (password.length < 8) throw Error('密码至少 8 位');
         if (register) {
+          if (!/^\S+@\S+\.\S+$/.test(email)) throw Error('请输入有效的邮箱地址');
+          const username = $<HTMLInputElement>('#au-username').value.trim();
+          if (!/^[a-z0-9_]{3,24}$/i.test(username)) throw Error('账号名须为 3–24 位字母、数字或下划线');
           const name = $<HTMLInputElement>('#au-name').value.trim(); if (!name) throw Error('请填写昵称');
-          done(await api<AuthResult>('/auth/register', { email, password, name, code: $<HTMLInputElement>('#au-code').value.trim() || undefined, avatar: myAvatar() }));
-        } else done(await api<AuthResult>('/auth/login', { email, password }));
+          done(await api<AuthResult>('/auth/register', { username, email, password, name, code: $<HTMLInputElement>('#au-code').value.trim() || undefined, avatar: myAvatar() }));
+        } else done(await api<AuthResult>('/auth/login', { identifier: email, password }));
       } catch (e2) { err.textContent = msg(e2); d.error(); } finally { b.disabled = false; }
     });
-    const show = (name: 'email' | 'scan') => {
-      document.querySelectorAll<HTMLElement>('#dialog [data-tab]').forEach(b => { b.classList.toggle('on', b.dataset.tab === name); b.setAttribute('aria-selected', String(b.dataset.tab === name)); });
-      document.querySelectorAll<HTMLElement>('#dialog [data-pane]').forEach(p => p.hidden = p.dataset.pane !== name);
-      err.textContent = ''; clearInterval(scanTimer);
-      if (name === 'scan') void startScan(done);
-    };
-    document.querySelectorAll<HTMLElement>('#dialog [data-tab]').forEach(b => b.onclick = () => show(b.dataset.tab as 'email' | 'scan'));
-    show(tab);
-  }
-
-  async function startScan(done: (r: AuthResult) => void) {
-    const box = $('#scan-box'), tip = $('#scan-tip');
-    box.innerHTML = '<div class="scan-wait">正在生成二维码…</div>'; tip.textContent = '';
-    try {
-      const s = await api<{ ticket: string; mode: 'real' | 'mock'; url: string; qr?: string }>('/auth/scan/start', { origin: shareOrigin() });
-      if (s.mode === 'real') { box.innerHTML = `<iframe title="微信扫码登录" src="${esc(s.url)}" sandbox="allow-scripts allow-same-origin allow-top-navigation"></iframe>`; tip.textContent = '打开微信「扫一扫」，在手机上确认登录。'; }
-      else {
-        box.innerHTML = `<img class="qr" src="${svgURL(s.qr!)}" alt="登录二维码"><a class="link" href="${esc(s.url)}" target="_blank" rel="noopener">在本机新标签页打开确认页</a>`;
-        tip.innerHTML = '<b>本机模拟扫码</b>：服务端尚未配置微信开放平台 AppID，这不是真实的微信授权。用同一 Wi‑Fi 下的手机（微信或相机）扫码，在手机上确认即可登录；流程与正式扫码一致。';
-      }
-      clearInterval(scanTimer);
-      scanTimer = setInterval(async () => {
-        try {
-          const p = await api<{ status: 'pending' | 'expired' | 'done' } & Partial<AuthResult>>(`/auth/scan/poll?ticket=${s.ticket}`);
-          if (p.status === 'done') { clearInterval(scanTimer); done({ token: p.token!, user: p.user! }); }
-          else if (p.status === 'expired') { clearInterval(scanTimer); box.innerHTML = '<button class="btn ghost" id="scan-refresh">二维码已过期 · 点击刷新</button>'; $('#scan-refresh').onclick = () => void startScan(done); }
-        } catch { /* 网络抖动：下次轮询再试 */ }
-      }, 1500);
-    } catch (e) { box.innerHTML = ''; tip.textContent = msg(e); }
   }
 
   // ---------- 个人资料 ----------
   async function openProfile() {
     const u = session.user; if (!u) return openLogin();
     d.modal(`<div class="eyebrow">我的账号</div>
-    <div class="profile-head">${faceImg(u.avatar, 'big')}<div><h2>${esc(u.name)}</h2><p class="muted">${u.email ? esc(u.email) : '微信账号 · 未绑定邮箱'}${u.wechat ? ' · 已关联微信' : ''}</p></div></div>
+    <div class="profile-head">${faceImg(u.avatar, 'big')}<div><h2>${esc(u.name)}</h2><p class="muted">${u.email ? esc(u.email) : '未绑定邮箱'}${u.email ? (u.emailVerified ? ' · 已验证' : ' · 未验证，可正常登录') : ''}</p></div></div>
+    <p class="muted">账号名：${u.username ? esc(u.username) : '尚未设置，可继续用邮箱登录'}</p>
+    ${u.username ? '' : `<div class="code-row"><label class="field">设置账号名<input id="pf-username" maxlength="24" placeholder="3–24 位字母、数字或下划线"></label><button class="btn ghost" id="pf-set-username">设置</button></div><p class="muted">账号名唯一，设置后不能修改；昵称可以修改。</p>`}
+    ${u.email && !u.emailVerified ? `<div id="pf-verify" hidden><label class="field">邮箱验证码（可选）<input id="pf-verify-code" inputmode="numeric" maxlength="6"></label><div class="row"><button class="btn ghost" id="pf-verify-send">发送验证码</button><button class="btn ghost" id="pf-verify-confirm">验证邮箱</button></div></div>` : ''}
     <div class="stats"><div><b>${u.games}</b><span>好友局</span></div><div><b>${u.wins}</b><span>胜局</span></div><div><b class="${u.score > 0 ? 'up' : u.score < 0 ? 'down' : ''}">${u.score > 0 ? '+' : ''}${u.score}</b><span>累计积分</span></div></div>
     <div class="code-row"><label class="field">昵称<input id="pf-name" maxlength="12" value="${esc(u.name)}"></label><button class="btn ghost" id="pf-save">保存</button></div>
     <div class="row"><button class="btn lacquer" id="pf-dress">更换形象</button><button class="btn ghost" id="pf-logout">退出登录</button></div>
-    ${u.email ? '' : `<div class="divider"><span>绑定邮箱 · 之后可在任意设备用邮箱登录</span></div><div class="code-row"><label class="field">邮箱<input id="pf-email" type="email" autocomplete="email"></label><label class="field">设置密码<input id="pf-pass" type="password" autocomplete="new-password"></label></div><div class="code-row" id="pf-code-row" hidden><label class="field">邮箱验证码<input id="pf-code" inputmode="numeric" maxlength="6"></label><button class="btn ghost" id="pf-send">发送验证码</button></div><button class="btn ghost wide" id="pf-bind">绑定邮箱</button>`}
+    ${u.email ? '' : `<div class="divider"><span>绑定邮箱 · 验证可选，不影响登录</span></div><div class="code-row"><label class="field">邮箱<input id="pf-email" type="email" autocomplete="email"></label><label class="field">设置密码<input id="pf-pass" type="password" autocomplete="new-password"></label></div><div class="code-row" id="pf-code-row" hidden><label class="field">邮箱验证码<input id="pf-code" inputmode="numeric" maxlength="6"></label><button class="btn ghost" id="pf-send">发送验证码</button></div><button class="btn ghost wide" id="pf-bind">绑定邮箱</button>`}
     <div class="divider"><span>多端互通</span></div>
     <div class="lan" id="pf-lan"><p class="muted">正在获取本机局域网地址…</p></div>
     <div class="divider"><span>积分榜</span></div>
     <div class="board" id="pf-board"><p class="muted">加载中…</p></div>
     <p id="au-error" class="form-error" role="alert"></p>`, 'paper');
     const err = $('#au-error');
+    if (!u.username) $('#pf-set-username').onclick = async () => { try { const r = await api<{user: User}>('/me', {username: $<HTMLInputElement>('#pf-username').value.trim()}); session.setUser(r.user); d.toast('账号名已设置'); await openProfile(); } catch (e) { err.textContent = msg(e); } };
+    if (u.email && !u.emailVerified) {
+      void getConfig().then(c => { if ($('#pf-verify')) $('#pf-verify').hidden = !c.emailCode; }).catch(() => {});
+      $('#pf-verify-send').onclick = async () => { const button = $<HTMLButtonElement>('#pf-verify-send'); button.disabled = true; try { await api('/auth/email/code', {email:u.email}); d.toast('验证码已发送'); setTimeout(() => { button.disabled = false; }, 60000); } catch (e) { button.disabled = false; err.textContent = msg(e); } };
+      $('#pf-verify-confirm').onclick = async () => { try { const r = await api<{user:User}>('/me/email/verify', {code:$<HTMLInputElement>('#pf-verify-code').value.trim()}); session.setUser(r.user); d.toast('邮箱已验证'); await openProfile(); } catch (e) { err.textContent = msg(e); } };
+    }
     $('#pf-dress').onclick = () => { if (!d.canDress()) return void (err.textContent = '牌局进行中，回到大厅后再换装'); d.close(); d.openWardrobe(); };
     $('#pf-logout').onclick = async () => { await api('/auth/logout', {}).catch(() => {}); session.set(null); d.close(); d.toast('已退出登录'); };
     $('#pf-save').onclick = async () => { try { const r = await api<{ user: User }>('/me', { name: $<HTMLInputElement>('#pf-name').value.trim() }); session.setUser(r.user); d.toast('昵称已更新'); void openProfile(); } catch (e) { err.textContent = msg(e); d.error(); } };
@@ -238,7 +219,7 @@ export function createAccount(d: Deps) {
       $('#pf-send').onclick = async () => { try { await api('/auth/email/code', { email: $<HTMLInputElement>('#pf-email').value }); d.toast('验证码已发送'); } catch (e) { err.textContent = msg(e); } };
       $('#pf-bind').onclick = async () => { try { const r = await api<{ user: User }>('/me/email', { email: $<HTMLInputElement>('#pf-email').value.trim(), password: $<HTMLInputElement>('#pf-pass').value, code: $<HTMLInputElement>('#pf-code').value.trim() || undefined }); session.setUser(r.user); d.toast('邮箱已绑定'); void openProfile(); } catch (e) { err.textContent = msg(e); d.error(); } };
     }
-    api<{ user: User }>('/me').then(r => { if (avatarKey(r.user.avatar) !== avatarKey(u.avatar) || r.user.games !== u.games || r.user.name !== u.name) { session.setUser(r.user); if (document.querySelector('#pf-lan')) void openProfile(); } }).catch(() => {});
+    api<{ user: User }>('/me').then(r => { if (avatarKey(r.user.avatar) !== avatarKey(u.avatar) || r.user.games !== u.games || r.user.name !== u.name || r.user.username !== u.username || r.user.emailVerified !== u.emailVerified) { session.setUser(r.user); if (document.querySelector('#pf-lan')) void openProfile(); } }).catch(() => {});
     api<{ url: string; local: boolean; qr: string }>(`/lan?origin=${encodeURIComponent(shareOrigin())}`).then(l => {
       const el = document.querySelector('#pf-lan'); if (!el) return;
       el.innerHTML = l.local ? '<p class="muted">没有检测到局域网地址。连接 Wi‑Fi 或网线后，其他设备才能访问本机服务。</p>'
@@ -250,38 +231,5 @@ export function createAccount(d: Deps) {
     }).catch(() => { const el = document.querySelector('#pf-board'); if (el) el.innerHTML = '<p class="muted">积分榜暂不可用。</p>'; });
   }
 
-  // ---------- 手机端：扫码后的确认页 (?scan=ticket) ----------
-  async function handleScan() {
-    const ticket = new URLSearchParams(location.search).get('scan'); if (!ticket) return;
-    const clean = () => history.replaceState(null, '', location.pathname);
-    let info: { valid: boolean; mock: boolean };
-    try { info = await api('/auth/scan/info?ticket=' + encodeURIComponent(ticket)); } catch { return; }
-    if (!info.valid) { clean(); return d.toast('二维码已过期，请在电脑上刷新'); }
-    const render = () => {
-      const u = session.user;
-      d.modal(`<div class="seal">扫</div><div class="eyebrow">扫码登录</div><h2>在另一台设备上登录？</h2>
-      ${u ? `<div class="profile-head">${faceImg(u.avatar, 'big')}<div><b>${esc(u.name)}</b><p class="muted">将用这个账号登录电脑端</p></div></div><button class="btn lacquer wide" id="sc-ok">确认登录</button>`
-        : `${info.mock ? `<label class="field">微信昵称（模拟）<input id="sc-name" maxlength="12" value="微信牌友"></label><button class="btn lacquer wide" id="sc-mock">模拟微信授权并登录</button><p class="muted">开发模式：服务端未配置微信 AppID，这里以本机固定的模拟身份代替微信授权。</p><div class="divider"><span>或</span></div>` : ''}<button class="btn ghost wide" id="sc-login">用邮箱账号登录后确认</button>`}
-      <p id="au-error" class="form-error" role="alert"></p>`, 'paper');
-      const confirm = async (mock?: { deviceId: string; name: string }) => {
-        try {
-          const r = await api<{ user: User; token?: string }>('/auth/scan/confirm', { ticket, mock });
-          if (r.token) session.set({ token: r.token, user: r.user });
-          clean(); d.close(); d.toast('已确认，电脑端即将登录');
-        } catch (e) { $('#au-error').textContent = msg(e); d.error(); }
-      };
-      if (u) $('#sc-ok').onclick = () => void confirm();
-      else {
-        if (info.mock) $('#sc-mock').onclick = () => {
-          let deviceId = localStorage.getItem('a3-device');
-          if (!deviceId) { deviceId = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('a3-device', deviceId); }
-          void confirm({ deviceId, name: $<HTMLInputElement>('#sc-name').value.trim() || '微信牌友' });
-        };
-        $('#sc-login').onclick = () => openLogin(render);
-      }
-    };
-    render();
-  }
-
-  return { openLogin, openProfile, handleScan };
+  return { openLogin, openProfile };
 }

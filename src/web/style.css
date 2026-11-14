@@ -315,11 +315,10 @@ dialog .ghost:hover:not(:disabled){background:rgba(176,138,74,.15)}
 .code-row{display:flex;gap:10px;align-items:flex-end}
 .code-row .field{flex:1;min-width:0}
 .code-row .btn{min-height:46px;margin-bottom:12px;padding:8px 16px;font-size:14px;white-space:nowrap}
-.scan-box{display:grid;justify-items:center;gap:8px;min-height:240px;align-content:center;margin-top:14px}
-.scan-box iframe{width:300px;height:400px;border:0;background:#fff}
 .qr{width:200px;height:200px;background:#fff;padding:8px;image-rendering:pixelated;box-shadow:0 0 0 3px #2a2219}
-.scan-wait{color:#6b5a44}
-.profile-head{display:flex;align-items:center;gap:18px;margin:14px 0}
+  .profile-head{display:flex;align-items:center;gap:18px;margin:14px 0}
+  .server-presence{font:12px var(--mono,monospace);white-space:nowrap;color:#e8ead5;background:#173d40;padding:7px 9px;border:2px solid #60766c;align-self:center}
+  @media(max-width:600px){.server-presence{position:absolute;top:100%;right:12px;margin-top:6px;font-size:11px;padding:4px 7px}}
 .profile-head h2{margin:0 0 2px}
 .profile-head p{margin:0}
 .profile-head b{font-size:18px}

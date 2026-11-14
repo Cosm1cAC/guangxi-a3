@@ -1,6 +1,7 @@
 import { createGame, createNextGame, act, returnTribute, tributeAction, botTributeAction, tributeConflicts, rpsLabel, isIdentity, isOpeningCard, canReturnTribute, view, legalMoves, movesFor, id, label, rankLabel, suits, classify, power, type Game, type GameView, type Card, type TributeAction, type RpsMove } from '../core/game';
 import { SoundEngine } from './audio';
 import { createRpsPanel } from './rps';
+import { startPresence } from './presence';
 import { suitSvg, SUIT_NAMES } from '../visual/pixel-art';
 import { MUSIC_TRACKS, musicTime, type PlayMode } from '../core/music';
 import { createChat, banter, type ChatMsg } from './chat';
@@ -27,6 +28,7 @@ app.innerHTML = `
 <header class="hud-top">
   <a class="brand" href="/" aria-label="山水尖3 首页"><img src="/assets/emblem.svg" alt=""><span><b>山水尖3</b><small id="mode">方块漓江 · 四人扑克</small></span></a>
   <nav>
+    <span class="server-presence" id="server-presence" aria-label="当前在线人数与服务器容量" role="status">在线 --/--</span>
     <button class="icon-btn account" id="account" aria-label="账号" title="账号"></button>
     <button class="icon-btn" id="rules" aria-label="玩法说明" title="玩法说明">${icon.rules}<span>玩法</span></button>
     <button class="icon-btn" id="history" aria-label="出牌记录" title="出牌记录" hidden>${icon.log}<span>记录</span></button>
@@ -653,5 +655,5 @@ async function restore() {
   } catch { roomId = null; remote = null; localStorage.removeItem('a3-room'); toast('未能恢复上局，可以重新开桌'); }
 }
 renderAccount(session.user);
-void account.handleScan();
+startPresence($('#server-presence'));
 void restore().then(() => void checkActiveRoom());

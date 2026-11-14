@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 // 需要 API 与 PostgreSQL 在运行（node scripts/start.mjs）；未运行时跳过。
-test('账号、形象、好友房多端续局与扫码登录', async ({ page, browser, request }) => {
+test('账号名与邮箱登录、独立昵称、形象与好友房多端续局', async ({ page, browser, request }) => {
   const health = await request.get('/api/health').catch(() => null);
   test.skip(!health?.ok(), 'API 未运行');
   test.setTimeout(360000);   // 三个软件渲染的 WebGL 页面同时运行，比较慢
@@ -16,6 +16,9 @@ test('账号、形象、好友房多端续局与扫码登录', async ({ page, br
   await expect(page.getByRole('heading', { name: '登录山水尖3' })).toBeVisible();
   await page.screenshot({ path: 'artifacts/web-login.png' });
   await page.locator('#au-switch').click();
+  await expect(page.locator('[data-tab=scan], #scan-box')).toHaveCount(0);
+  await page.locator('#au-username').fill('e2e_'+Date.now().toString(36));
+  const username=await page.locator('#au-username').inputValue();
   await page.locator('#au-email').fill(email); await page.locator('#au-pass').fill('short'); await page.locator('#au-name').fill('方块阿牛');
   await page.locator('#au-submit').click(); await expect(page.locator('#au-error')).toContainText('至少 8 位');
   await page.locator('#au-pass').fill(password); await page.locator('#au-submit').click();
@@ -48,18 +51,15 @@ test('账号、形象、好友房多端续局与扫码登录', async ({ page, br
   await phone.locator('#resume').click();
   await expect(phone.locator('#turn-banner')).toContainText(room);
 
-  // 第三台设备：扫码登录，由已登录的手机确认
-  const pcCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, baseURL: 'http://127.0.0.1:5173' });
-  const pc = await pcCtx.newPage(); pc.on('pageerror', e => errors.push(e.message));
-  await pc.goto('/'); await pc.locator('#account').click(); await pc.locator('[data-tab="scan"]').click();
-  const link = pc.locator('.scan-box a');
-  await expect(link).toBeVisible(); await pc.screenshot({ path: 'artifacts/web-scan.png' });
-  const url = new URL((await link.getAttribute('href'))!);
-  const scanner = phone; await scanner.goto(`/${url.search}`);   // 手机扫到的就是这个地址
-  await expect(scanner.getByRole('heading', { name: '在另一台设备上登录？' })).toBeVisible();
-  await scanner.locator('#sc-ok').click();
+  // 第三台设备使用独立账号名登录同一账号。
+  const pcCtx = await browser.newContext({viewport:{width:1280,height:800},baseURL:'http://127.0.0.1:5173'});
+  const pc=await pcCtx.newPage();pc.on('pageerror',e=>errors.push(e.message));
+  await pc.goto('/');await pc.locator('#account').click();
+  await pc.locator('#au-email').fill(username.toUpperCase());await pc.locator('#au-pass').fill(password);await pc.locator('#au-submit').click();
   await expect(pc.locator('#account')).toContainText('方块阿牛');
+  await expect(pc.locator('#account')).not.toContainText(username);
   await expect(pc.locator('#resume')).toBeVisible();
+  await expect(pc.locator('#server-presence')).toHaveText(/在线 \d+\/20/);
 
   await phoneCtx.close(); await pcCtx.close();
   expect(errors).toEqual([]);

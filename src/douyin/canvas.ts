@@ -24,7 +24,7 @@ export class CanvasGame {
   private touch:{x:number;y:number;lastY:number;moved:boolean}|null=null;
   private editing:string|null=null;
   private keyboardOpen=false;
-  private fields:Record<string,string>={email:'',password:'',name:'',code:'',room:''};
+  private fields:Record<string,string>={email:'',password:'',username:'',name:'',code:'',room:''};
   private register=false;
   private emailCode=false;
   private sidebar=false;
@@ -228,10 +228,10 @@ export class CanvasGame {
       y=this.field('room','输入 10 位房号',y,10);this.button('join-room','加入房间',16,y,358,()=>void this.connect(this.fields.room),true,!this.game.busy&&/^[a-f0-9]{10}$/i.test(this.fields.room));y+=76;
       this.button('logout','退出账号',16,y,358,()=>{this.game.logout();this.draw();});y+=74;
     }else{
-      y=this.wrap('与网页和安卓端共用邮箱账号。离线练习无需登录。',16,y,358,14,colors.muted,24)+18;
-      y=this.field('email','邮箱',y,100);y=this.field('password','密码（至少 8 位）',y,72);
-      if(this.register){y=this.field('name','昵称',y,12);if(this.emailCode){y=this.field('code','邮箱验证码',y,6);this.button('send-code','发送邮箱验证码',16,y,358,()=>void this.game.sendEmailCode(this.fields.email));y+=70;}}
-      this.button('login',this.game.busy?'连接中…':this.register?'注册并登录':'登录',16,y,358,()=>{void this.game.login(this.fields.email,this.fields.password,this.register?this.fields.name:undefined,this.fields.code).then(ok=>{if(ok)this.fields.password='';});},true,!this.game.busy&&!!this.fields.email&&this.fields.password.length>=8&&(!this.register||!!this.fields.name));y+=74;
+      y=this.wrap('账号名或邮箱均可登录，牌桌显示昵称。离线练习无需登录。',16,y,358,14,colors.muted,24)+18;
+      y=this.field('email',this.register?'邮箱':'账号名或邮箱',y,100);y=this.field('password','密码（至少 8 位）',y,72);
+      if(this.register){y=this.field('username','账号名（3–24 位字母、数字或下划线）',y,24);y=this.field('name','昵称',y,12);if(this.emailCode){y=this.field('code','邮箱验证码（可选）',y,6);this.button('send-code','发送邮箱验证码',16,y,358,()=>void this.game.sendEmailCode(this.fields.email));y+=70;}}
+      this.button('login',this.game.busy?'连接中…':this.register?'注册并登录':'登录',16,y,358,()=>{void this.game.login(this.fields.email,this.fields.password,this.register?this.fields.name:undefined,this.fields.code,this.register?this.fields.username:undefined).then(ok=>{if(ok)this.fields.password='';});},true,!this.game.busy&&!!this.fields.email&&this.fields.password.length>=8&&(!this.register||(!!this.fields.name&&/^[a-z0-9_]{3,24}$/i.test(this.fields.username))));y+=74;
       this.button('switch-auth',this.register?'已有账号，去登录':'没有账号，去注册',16,y,358,()=>{this.register=!this.register;this.draw();});y+=74;
     }
     if(this.game.error)y=this.wrap(this.game.error,16,y,358,14,'#f4b6a7',24)+16;

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {pool} from './db';
 import {auth,userOf,requireUser,lanAddresses,type User} from './auth';
+import {presence} from './presence';
 import {BOT_AVATARS,DEFAULT_AVATAR,type Avatar} from '../src/core/avatar';
 import {createGame,createNextGame,act,returnTribute,tributeAction,botTributeAction,view,legalMoves,type Game} from '../src/core/game';
 
@@ -51,7 +52,17 @@ async function mutate(req:express.Request,res:express.Response,next:express.Next
   }catch(e){if(client)await client.query('ROLLBACK').catch(()=>{});next(e);}finally{client?.release();}
 }
 app.get('/api/health',async(_req,res)=>{try{await pool.query('SELECT 1');res.json({ok:true,database:'postgresql'});}catch{res.status(503).json({error:'PostgreSQL 未连接，请启动数据库并执行迁移'});}});
+// 原生客户端在牌桌中会持续请求服务；与网页心跳按账号合并统计。
+app.use('/api',async(req,_res,next)=>{try{
+  if(['miniprogram','douyin'].includes(String(req.headers['x-a3-client']))){const user=await userOf(req);if(user)presence.touch(`native:${user.id}`,user.id);}
+  next();
+}catch(error){next(error);}});
 app.use('/api',auth);
+app.post('/api/presence',async(req,res,next)=>{try{
+  const visitor=z.string().regex(/^[a-f0-9]{32}$/).safeParse(req.body?.visitorId);
+  if(!visitor.success)return void res.status(400).json({error:'访客标识无效'});
+  const user=await userOf(req);res.setHeader('Cache-Control','no-store');res.json(presence.touch(visitor.data,user?.id));
+}catch(error){next(error);}});
 app.post('/api/rooms',requireUser(async(req,res,user)=>{
   const parsed=createSchema.safeParse(req.body??{});if(!parsed.success)return void res.status(400).json({error:'开房请求格式不正确'});
   const members:Member[]=[member(user)];

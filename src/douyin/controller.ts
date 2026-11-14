@@ -97,9 +97,9 @@ export class DouyinGame {
       if(result.ok){this.local=result.state;this.notify();this.bot();}else{this.error=miniText(result.error);this.notify();}
     },650);
   }
-  async login(email:string,password:string,name?:string,code?:string){
+  async login(email:string,password:string,name?:string,code?:string,username?:string){
     if(this.busy)return;this.busy=true;this.error='';this.notify();
-    try{const data=await this.services.request(name?'/auth/register':'/auth/login',name?{email,password,name,code}:{email,password},null);this.session={token:data.token,user:data.user};this.services.put('a3-douyin-session',this.session);this.notify();return true;}
+    try{const data=await this.services.request(name?'/auth/register':'/auth/login',name?{email,password,name,code,username}:{identifier:email,password},null);this.session={token:data.token,user:data.user};this.services.put('a3-douyin-session',this.session);this.notify();return true;}
     catch(e){this.error=miniText(e instanceof Error?e.message:String(e));return false;}
     finally{this.busy=false;this.notify();}
   }

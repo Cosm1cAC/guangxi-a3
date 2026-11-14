@@ -7,15 +7,16 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { pool } from './db';
+import { wechatJson, wechatIdentity } from './wechat';
 import { normalizeAvatar, randomAvatar, isAvatar, type Avatar } from '../src/core/avatar';
 
 const scryptAsync = promisify(scrypt) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
 export const sha = (t: string) => createHash('sha256').update(t).digest('hex');
 const SESSION_DAYS = 30;
 
-export type User = { id: number; name: string; email: string | null; avatar: Avatar; games: number; wins: number; score: number; wechat: boolean };
-type Row = { id: string; name: string; email: string | null; avatar: unknown; games: number; wins: number; score: number; wechat_openid: string | null; mini_openid: string | null; password_hash: string | null };
-const toUser = (r: Row): User => ({ id: Number(r.id), name: r.name, email: r.email, avatar: normalizeAvatar(r.avatar), games: r.games, wins: r.wins, score: r.score, wechat: !!(r.wechat_openid || r.mini_openid) });
+export type User = { id: number; username: string | null; name: string; email: string | null; emailVerified: boolean; avatar: Avatar; games: number; wins: number; score: number; wechat: boolean };
+type Row = { id: string; username?: string | null; name: string; email: string | null; email_verified_at?: unknown; avatar: unknown; games: number; wins: number; score: number; wechat_openid: string | null; mini_openid: string | null; password_hash: string | null };
+const toUser = (r: Row): User => ({ id: Number(r.id), username: r.username ?? null, name: r.name, email: r.email, emailVerified: !!r.email_verified_at, avatar: normalizeAvatar(r.avatar), games: r.games, wins: r.wins, score: r.score, wechat: !!(r.wechat_openid || r.mini_openid) });
 
 // ---------- configuration ----------
 const env = process.env;
@@ -100,6 +101,7 @@ async function consumeCode(email: string, code: string | undefined) {
 const emailSchema = z.string().trim().toLowerCase().max(254).email();
 const passwordSchema = z.string().min(8).max(72);
 const nameSchema = z.string().trim().min(1).max(12);
+const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9_]{3,24}$/);
 const cleanName = (s: string) => s.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e]/g, '').trim().slice(0, 12) || '山水客';
 const ticketSchema = z.string().regex(/^[a-f0-9]{32}$/);
 
@@ -113,12 +115,6 @@ async function wechatUser(ids: { openid?: string; mini?: string; unionid?: strin
   const r = await pool.query('INSERT INTO users(name,avatar,wechat_unionid,wechat_openid,mini_openid) VALUES($1,$2,$3,$4,$5) RETURNING *', [cleanName(nickname), JSON.stringify(randomAvatar()), ids.unionid ?? null, ids.openid ?? null, ids.mini ?? null]);
   return toUser(r.rows[0]);
 }
-async function wechatJson(url: string) {
-  const r = await fetch(url, { signal: AbortSignal.timeout(6000) }); const data = await r.json() as Record<string, any>;
-  if (data.errcode) throw Object.assign(Error(`微信接口错误 ${data.errcode}`), { wechat: true });
-  return data;
-}
-
 export const auth = express.Router();
 
 auth.get('/auth/config', (_req, res) => res.json({ emailCode: !!smtp, wechat: wechatWeb ? 'real' : mockAllowed ? 'mock' : 'off', mini: !!wechatMini }));
@@ -136,24 +132,26 @@ auth.post('/auth/email/code', wrap(async (req, res) => {
 }));
 
 auth.post('/auth/register', wrap(async (req, res) => {
-  const parsed = z.object({ email: emailSchema, password: passwordSchema, name: nameSchema, code: z.string().regex(/^\d{6}$/).optional(), avatar: z.unknown().optional() }).safeParse(req.body);
-  if (!parsed.success) return void res.status(400).json({ error: '请填写有效邮箱、8–72 位密码和 1–12 字昵称' });
+  // username 对旧版安卓客户端可省略；新版注册界面必填，并支持老账号后续补设。
+  const parsed = z.object({ username: usernameSchema.optional(), email: emailSchema, password: passwordSchema, name: nameSchema, code: z.string().regex(/^\d{6}$/).optional(), avatar: z.unknown().optional() }).safeParse(req.body);
+  if (!parsed.success) return void res.status(400).json({ error: '请填写有效邮箱、8–72 位密码和 1–12 字昵称；账号名须为 3–24 位字母、数字或下划线' });
   if (throttled(`register:${req.ip}`, 20, 3600000)) return void res.status(429).json({ error: '注册过于频繁，请稍后再试' });
-  const { email, password, name, code, avatar } = parsed.data;
-  if (!await consumeCode(email, code)) return void res.status(400).json({ error: '邮箱验证码不正确或已过期' });
-  const r = await pool.query('INSERT INTO users(email,password_hash,name,avatar) VALUES($1,$2,$3,$4) ON CONFLICT(email) DO NOTHING RETURNING *', [email, await hashPassword(password), cleanName(name), JSON.stringify(isAvatar(avatar) ? avatar : randomAvatar())]);
-  if (!r.rows[0]) return void res.status(409).json({ error: '该邮箱已注册，请直接登录' });
+  const { username, email, password, name, code, avatar } = parsed.data;
+  if (code && (!smtp || !await consumeCode(email, code))) return void res.status(400).json({ error: '邮箱验证码不正确或已过期' });
+  const r = await pool.query('INSERT INTO users(email,password_hash,name,avatar,username,email_verified_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING RETURNING *', [email, await hashPassword(password), cleanName(name), JSON.stringify(isAvatar(avatar) ? avatar : randomAvatar()), username ?? null, code ? new Date() : null]);
+  if (!r.rows[0]) return void res.status(409).json({ error: '账号名或邮箱已注册，请直接登录' });
   const user = toUser(r.rows[0]);
   res.status(201).json({ token: await createSession(user.id, device(req)), user });
 }));
 
 auth.post('/auth/login', wrap(async (req, res) => {
-  const parsed = z.object({ email: emailSchema, password: z.string().min(1).max(72) }).safeParse(req.body);
-  if (!parsed.success) return void res.status(400).json({ error: '请输入邮箱和密码' });
-  if (throttled(`login:${parsed.data.email}`, 8, 600000) || throttled(`login-ip:${req.ip}`, 40, 600000)) return void res.status(429).json({ error: '尝试次数过多，请 10 分钟后再试' });
-  const r = await pool.query('SELECT * FROM users WHERE email=$1', [parsed.data.email]);
-  if (!await checkPassword(parsed.data.password, r.rows[0]?.password_hash ?? null)) return void res.status(401).json({ error: '邮箱或密码不正确' });
-  attempts.delete(`login:${parsed.data.email}`);
+  const parsed = z.object({ identifier: z.string().trim().toLowerCase().min(3).max(254).optional(), email: emailSchema.optional(), password: z.string().min(1).max(72) }).safeParse(req.body);
+  if (!parsed.success || !(parsed.data.identifier || parsed.data.email)) return void res.status(400).json({ error: '请输入账号名或邮箱和密码' });
+  const identifier = parsed.data.identifier || parsed.data.email!;
+  if (throttled(`login:${identifier}`, 8, 600000) || throttled(`login-ip:${req.ip}`, 40, 600000)) return void res.status(429).json({ error: '尝试次数过多，请 10 分钟后再试' });
+  const r = await pool.query('SELECT * FROM users WHERE email=$1 OR lower(username)=$1', [identifier]);
+  if (!await checkPassword(parsed.data.password, r.rows[0]?.password_hash ?? null)) return void res.status(401).json({ error: '账号名、邮箱或密码不正确' });
+  attempts.delete(`login:${identifier}`);
   const user = toUser(r.rows[0]);
   res.json({ token: await createSession(user.id, device(req)), user });
 }));
@@ -168,20 +166,35 @@ auth.get('/me', requireUser(async (_req, res, cached) => {
   res.json({ user, activeRoom: room.rows[0] ? { id: room.rows[0].id, status: room.rows[0].status } : null });
 }));
 auth.post('/me', requireUser(async (req, res, user) => {
-  const parsed = z.object({ name: nameSchema.optional(), avatar: z.unknown().optional() }).safeParse(req.body);
-  if (!parsed.success || (parsed.data.avatar !== undefined && !isAvatar(parsed.data.avatar))) return void res.status(400).json({ error: '昵称需为 1–12 字，形象数据需合法' });
-  const r = await pool.query('UPDATE users SET name=COALESCE($2,name), avatar=COALESCE($3,avatar) WHERE id=$1 RETURNING *', [user.id, parsed.data.name ? cleanName(parsed.data.name) : null, parsed.data.avatar ? JSON.stringify(parsed.data.avatar) : null]);
-  forget(user.id); res.json({ user: toUser(r.rows[0]) });
+  const parsed = z.object({ username: usernameSchema.optional(), name: nameSchema.optional(), avatar: z.unknown().optional() }).safeParse(req.body);
+  if (!parsed.success || (parsed.data.avatar !== undefined && !isAvatar(parsed.data.avatar))) return void res.status(400).json({ error: '昵称需为 1–12 字，账号名需为 3–24 位字母、数字或下划线，形象数据需合法' });
+  try {
+    const r = await pool.query('UPDATE users SET name=COALESCE($2,name), avatar=COALESCE($3,avatar), username=COALESCE(username,$4) WHERE id=$1 AND ($4::text IS NULL OR username IS NULL OR username=$4) RETURNING *', [user.id, parsed.data.name ? cleanName(parsed.data.name) : null, parsed.data.avatar ? JSON.stringify(parsed.data.avatar) : null, parsed.data.username ?? null]);
+    if (!r.rows[0]) return void res.status(409).json({ error: '账号名设置后不能修改' });
+    forget(user.id); res.json({ user: toUser(r.rows[0]) });
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === '23505') return void res.status(409).json({ error: '该账号名已被使用' });
+    throw error;
+  }
 }));
 /** 微信账号补绑邮箱，之后可在任意设备用邮箱密码登录同一账号。 */
 auth.post('/me/email', requireUser(async (req, res, user) => {
   const parsed = z.object({ email: emailSchema, password: passwordSchema, code: z.string().regex(/^\d{6}$/).optional() }).safeParse(req.body);
   if (!parsed.success) return void res.status(400).json({ error: '请填写有效邮箱和 8–72 位密码' });
   if (user.email) return void res.status(409).json({ error: '此账号已绑定邮箱' });
-  if (!await consumeCode(parsed.data.email, parsed.data.code)) return void res.status(400).json({ error: '邮箱验证码不正确或已过期' });
+  if (parsed.data.code && (!smtp || !await consumeCode(parsed.data.email, parsed.data.code))) return void res.status(400).json({ error: '邮箱验证码不正确或已过期' });
   const taken = await pool.query('SELECT 1 FROM users WHERE email=$1', [parsed.data.email]);
   if (taken.rows[0]) return void res.status(409).json({ error: '该邮箱已被其他账号使用' });
-  const r = await pool.query('UPDATE users SET email=$2,password_hash=$3 WHERE id=$1 RETURNING *', [user.id, parsed.data.email, await hashPassword(parsed.data.password)]);
+  const r = await pool.query('UPDATE users SET email=$2,password_hash=$3,email_verified_at=$4 WHERE id=$1 RETURNING *', [user.id, parsed.data.email, await hashPassword(parsed.data.password), parsed.data.code ? new Date() : null]);
+  forget(user.id); res.json({ user: toUser(r.rows[0]) });
+}));
+
+/** 邮箱验证可随时补做；未验证不限制注册、登录或游戏。 */
+auth.post('/me/email/verify', requireUser(async (req, res, user) => {
+  if (!smtp) return void res.status(501).json({ error: '邮箱验证暂未开通，不影响账号登录和游戏' });
+  const code = z.string().regex(/^\d{6}$/).safeParse(req.body?.code);
+  if (!user.email || !code.success || !await consumeCode(user.email, code.data)) return void res.status(400).json({ error: '邮箱验证码不正确或已过期' });
+  const r = await pool.query('UPDATE users SET email_verified_at=now() WHERE id=$1 RETURNING *', [user.id]);
   forget(user.id); res.json({ user: toUser(r.rows[0]) });
 }));
 
@@ -212,15 +225,22 @@ auth.post('/auth/scan/start', wrap(async (req, res) => {
   res.json({ ticket, mode, url, qr: await QRCode.toString(url, { type: 'svg', margin: 1 }) });
 }));
 auth.get('/auth/wechat/callback', wrap(async (req, res) => {
+  // 微信二维码内嵌 iframe 会跳到这里；页面只显示静态结果，不继承全站的禁止嵌入策略。
+  res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   const page = (text: string) => res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0;display:grid;place-items:center;height:100vh;font:16px system-ui;background:#16302a;color:#f3ead3">${text}</body>`);
   const ticket = ticketSchema.safeParse(req.query.state);
-  if (!wechatWeb || !ticket.success || typeof req.query.code !== 'string') return void page('授权已取消或参数无效，请回到游戏重新扫码。');
+  if (!wechatWeb || !ticket.success || typeof req.query.code !== 'string' || !req.query.code || req.query.code.length > 512) return void page('授权已取消或参数无效，请回到游戏重新扫码。');
   const pending = await pool.query("SELECT 1 FROM login_tickets WHERE id=$1 AND mode='real' AND user_id IS NULL AND expires_at>now()", [ticket.data]);
   if (!pending.rows[0]) return void page('二维码已过期，请回到游戏刷新后重新扫码。');
   const tok = await wechatJson(`https://api.weixin.qq.com/sns/oauth2/access_token?appid=${wechatWeb.id}&secret=${wechatWeb.secret}&code=${encodeURIComponent(req.query.code)}&grant_type=authorization_code`);
-  const info = await wechatJson(`https://api.weixin.qq.com/sns/userinfo?access_token=${tok.access_token}&openid=${tok.openid}`).catch((): Record<string, any> => ({ nickname: '' }));
-  const user = await wechatUser({ openid: tok.openid, unionid: tok.unionid || info.unionid }, info.nickname || '微信牌友');
-  await pool.query('UPDATE login_tickets SET user_id=$2 WHERE id=$1', [ticket.data, user.id]);
+  const identity = wechatIdentity(tok, true);
+  const info = await wechatJson(`https://api.weixin.qq.com/sns/userinfo?access_token=${encodeURIComponent(tok.access_token)}&openid=${encodeURIComponent(identity.openid)}`).catch((): Record<string, any> => ({}));
+  const profile = wechatIdentity({ openid: identity.openid, unionid: identity.unionid || info.unionid });
+  const user = await wechatUser(profile, typeof info.nickname === 'string' && info.nickname.trim() ? info.nickname : '微信牌友');
+  const completed = await pool.query("UPDATE login_tickets SET user_id=$2 WHERE id=$1 AND mode='real' AND user_id IS NULL AND expires_at>now()", [ticket.data, user.id]);
+  if (!completed.rowCount) return void page('二维码已过期或已被使用，请回到游戏重新扫码。');
   page('登录成功，请回到游戏。');
 }));
 auth.get('/auth/scan/info', wrap(async (req, res) => {
@@ -257,6 +277,7 @@ auth.post('/auth/wechat/mini', wrap(async (req, res) => {
   const parsed = z.object({ code: z.string().min(1).max(128), name: nameSchema.optional() }).safeParse(req.body);
   if (!parsed.success) return void res.status(400).json({ error: '登录凭证无效' });
   const s = await wechatJson(`https://api.weixin.qq.com/sns/jscode2session?appid=${wechatMini.id}&secret=${wechatMini.secret}&js_code=${encodeURIComponent(parsed.data.code)}&grant_type=authorization_code`);
-  const user = await wechatUser({ mini: s.openid, unionid: s.unionid }, parsed.data.name || '微信牌友');
+  const identity = wechatIdentity(s);
+  const user = await wechatUser({ mini: identity.openid, unionid: identity.unionid }, parsed.data.name || '微信牌友');
   res.json({ token: await createSession(user.id, device(req)), user });
 }));

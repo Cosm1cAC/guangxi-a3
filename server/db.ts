@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS sessions (
  created_at timestamptz NOT NULL DEFAULT now(),
  expires_at timestamptz NOT NULL
 );
+-- 独立账号名供登录使用；已有用户保留空值，可在资料页补设。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at timestamptz;
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users(lower(username)) WHERE username IS NOT NULL;
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS email_codes (
  email text PRIMARY KEY,
