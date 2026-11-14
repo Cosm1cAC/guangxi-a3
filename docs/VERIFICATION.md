@@ -7,6 +7,8 @@
 - APK 版本 1.0.1、versionCode 2，最低 Android API 24。正式构建及 lint 通过；APK Signature Scheme v2 校验通过，证书 SHA-256 为 `c7a8b0ff81637d5aca8c3f75482901f757a87355859ef2bf9dd20bb6b8b965ec`。复用本机发布密钥，没有将密钥上传。
 - `public/download/release.json` 记录该包的大小、SHA-256、发布日期及版本化下载地址；`scripts/android-release.mjs` 用于后续发布时刷新元数据。
 - 本地 Chrome 桌面／手机下载页、版本元数据、GitHub 下载地址、校验值、微信提示共2项浏览器测试通过，并检查了两种尺寸截图，无横向溢出。规则与入口12项单元测试、Web／服务端／小程序类型检查与构建通过。
+- 源码已推送到公开仓库 `https://github.com/Cosm1cAC/guangxi-a3`，`v1.0.1` Release 已发布为非草稿、非预发布。正式附件 3277503 字节，GitHub 返回的 SHA-256 与本机文件一致；另提供独立 `.sha256` 文件。APK 不包含认证 Token 或发布私钥。
+- 实际从 `https://a3.vibelink.cloud/download/` 跳转到当前穿透下载页，页面显示 v1.0.1，无脚本错误；手机视口浏览器点击下载按钮，从 GitHub 下载得到 `shanshui-a3.apk`，3277503字节，SHA-256 为 `60809a7308601a9d48ccd70537c1ed2327d72beb4cf934788f095db4b7777a2e`，与发布元数据相符。还用公开匿名链接独立下载复核通过。
 
 ## 2026-11-14 免费固定入口与 Cloudflare 候选 IP 筛选
 
