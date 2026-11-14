@@ -28,8 +28,8 @@ const output=(r:Room,seat:number)=>({...view(r.state,seat),room:r.id,roomStatus:
 const member=(u:User):Member=>({userId:u.id,name:u.name,avatar:u.avatar,bot:false});
 function bots(r:Room){
   let count=0;
-  while(r.state.status==='tribute'&&count++<40){const seat=r.members.findIndex((m,i)=>m.bot&&botTributeAction(r.state,i));if(seat<0)break;const result=tributeAction(r.state,seat,botTributeAction(r.state,seat,()=>randomInt(0,0x100000000)/0x100000000)!);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
-  while(r.state.status==='playing'&&r.members[r.state.turn]?.bot&&count++<500){const result=act(r.state,r.state.turn,legalMoves(r.state,r.state.turn)[0]||[]);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
+  while(r.state.status==='tribute'&&count++<40){const seat=r.members.findIndex((m,i)=>m.bot&&m.userId===null&&botTributeAction(r.state,i));if(seat<0)break;const result=tributeAction(r.state,seat,botTributeAction(r.state,seat,()=>randomInt(0,0x100000000)/0x100000000)!);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
+  while(r.state.status==='playing'&&r.members[r.state.turn]?.bot&&r.members[r.state.turn]?.userId===null&&count++<500){const result=act(r.state,r.state.turn,legalMoves(r.state,r.state.turn)[0]||[]);if(!result.ok)throw Error('BOT_INVALID');r.state=result.state;}
   if(r.state.status==='finished')r.status='finished';
 }
 // 座位按账号认领：同一账号在任何设备登录，都是同一个座位。

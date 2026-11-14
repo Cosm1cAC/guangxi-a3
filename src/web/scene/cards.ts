@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { type Card } from '../../core/game';
+import {SUIT_GLYPHS} from '../../visual/pixel-art';
 
 // 像素扑克：在 40×56 的格子上逐格绘制，再整数倍放大成纹理，近看是清晰的方格。
 export const CARD_W = .62, CARD_H = .868;
@@ -22,12 +23,7 @@ const GLYPH: Record<string, string[]> = {
   Q: ['.###.', '#...#', '#...#', '#...#', '#.#.#', '#..#.', '.##.#'],
   K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
 };
-const SUIT = [
-  ['...#...', '..###..', '.#####.', '#######', '.#####.', '..###..', '...#...'],  // ♦
-  ['..###..', '..###..', '#######', '#######', '##.#.##', '...#...', '..###..'],  // ♣
-  ['.##.##.', '#######', '#######', '#######', '.#####.', '..###..', '...#...'],  // ♥
-  ['...#...', '..###..', '.#####.', '#######', '##.#.##', '...#...', '..###..'],  // ♠
-];
+const SUIT=SUIT_GLYPHS;
 const rankKey = (rank: number) => ({ 11: 'J', 12: 'Q', 13: 'K', 14: 'A' }[rank] ?? String(rank));
 
 type Grid = (string | null)[][];
@@ -55,12 +51,12 @@ function drawFace(c: Card) {
   const identity = c.suit === 3 && (c.rank === 14 || c.rank === 3), first = c.suit === 0 && c.rank === 4;
   frame(g, 0, INK); frame(g, 1, identity ? GOLD : first ? '#3f9a62' : PAPER_2);
   if (identity || first) frame(g, 2, identity ? GOLD : '#3f9a62');
-  stamp(g, GLYPH[key], 3, 3, col, 2); stamp(g, SUIT[c.suit], 4, 19, col);
+  stamp(g, GLYPH[key], 3, 3, col, 2); stamp(g, SUIT[c.suit], 3, 19, col);
   if (c.rank >= 11 && c.rank <= 13) {
     // 花牌：像素窗格里的大字
     for (let y = 23; y < 52; y++) for (let x = 15; x < 37; x++) g[y][x] = (x === 15 || x === 36 || y === 23 || y === 51) ? col : (x + y) % 2 ? PAPER : PAPER_2;
     stamp(g, GLYPH[key], 18, 27, col, 3);
-  } else stamp(g, SUIT[c.suit], 15, 27, col, 3);
+  } else stamp(g, SUIT[c.suit], 17, 28, col, 2);
   if (identity) for (const [x, y] of [[32, 4], [31, 5], [32, 5], [33, 5], [32, 6], [30, 5], [34, 5], [32, 3], [32, 7]]) g[y][x] = RED;
   return toCanvas(g);
 }

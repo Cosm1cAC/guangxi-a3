@@ -32,12 +32,12 @@ test('猜拳处理冲突：对方手势提交前不公开，胜者保留预选',
   await expect(page.locator('.tribute-status')).toContainText('选牌有冲突');await expect(page.locator('[data-rps-start="1"]')).toBeVisible();
   await page.locator('[data-rps-start="1"]').click();await expect(page.locator('[data-rps]')).toHaveCount(3);
   for(const size of [{width:1440,height:1000},{width:390,height:844},{width:844,height:390}]){
-    await page.setViewportSize(size);const box=(await page.locator('#tribute-choice').boundingBox())!;
+    await page.setViewportSize(size);const box=(await page.locator('.rps-window').boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(size.width);expect(box.y).toBeGreaterThanOrEqual(0);
     await page.screenshot({path:`artifacts/tribute-rps-${size.width}.png`});
   }
   await page.setViewportSize({width:390,height:844});
-  await page.locator('[data-rps="rock"]').click();await expect(page.locator('.tribute-status')).toContainText('你已出拳');
+  await page.locator('[data-rps="rock"]').click();await page.locator('#rps-confirm').click();await expect(page.locator('.rps-instruction')).toContainText('已确认出拳');
   await expect(page.locator('[data-rps="paper"]')).toBeDisabled();
   // The stored move is private; the UI shows only submission status until both move.
   await expect(page.locator('.rps-result')).toHaveCount(0);

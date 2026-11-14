@@ -1,10 +1,24 @@
 import { chooseTribute } from './tribute-fixtures';
 import {afterEach,expect,test,vi} from 'vitest';
 import {DouyinGame,type GameServices,type RoomView} from '../src/douyin/controller';
-import {createGame,createNextGame,view,id,isIdentity,isOpeningCard,canReturnTribute,legalMoves} from '../src/core/game';
+import {createGame,createNextGame,view,id,isIdentity,isOpeningCard,canReturnTribute,legalMoves,tributeAction,type TributeAction} from '../src/core/game';
 
 const make=()=>new DouyinGame({get:()=>null,put(){},remove(){},request:async()=>{throw Error('unexpected request');}});
 afterEach(()=>vi.useRealTimers());
+
+test('Douyin RPS waits for a manual confirmation and clears the draft after a tie',async()=>{
+  vi.useFakeTimers();const game=make();game.pause();
+  let g=createNextGame({...createGame(),status:'finished',teams:[1,1,0,0],order:[0,1,2,3],scores:[2,2,-2,-2]});
+  const apply=(seat:number,action:TributeAction)=>{const result=tributeAction(g,seat,action);if(!result.ok)throw Error(result.error);g=result.state;};
+  apply(0,{kind:'select',cards:[0,1]});apply(1,{kind:'select',cards:[1,2]});apply(0,{kind:'rps-start',opponent:1});
+  const duel=g.tribute!.selection!.duel!;apply(1,{kind:'rps',move:'rock',round:duel.round,duelId:duel.id});
+  game.local=g;game.toggleTeammates();expect(game.rpsDraft).toBeNull();
+  await game.confirmRps();expect(game.local!.version).toBe(g.version);
+  game.rps('rock');expect(game.rpsDraft).toBe('rock');expect(game.local!.version).toBe(g.version);
+  await vi.advanceTimersByTimeAsync(60000);expect(game.local!.version).toBe(g.version);
+  await game.confirmRps();expect(game.local!.tribute!.selection!.duel!.round).toBe(duel.round+1);expect(game.rpsDraft).toBeNull();
+  const version=game.local!.version;await game.confirmRps();expect(game.local!.version).toBe(version);game.dispose();
+});
 
 test('Douyin practice completes two rounds with shared rules and zero-sum scores',async()=>{
   vi.useFakeTimers();const game=make();game.practice();

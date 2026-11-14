@@ -1,5 +1,7 @@
 import { createGame, createNextGame, act, returnTribute, tributeAction, botTributeAction, tributeConflicts, rpsLabel, isIdentity, isOpeningCard, canReturnTribute, view, legalMoves, movesFor, id, label, rankLabel, suits, classify, power, type Game, type GameView, type Card, type TributeAction, type RpsMove } from '../core/game';
 import { SoundEngine } from './audio';
+import { createRpsPanel } from './rps';
+import { suitSvg, SUIT_NAMES } from '../visual/pixel-art';
 import { MUSIC_TRACKS, musicTime, type PlayMode } from '../core/music';
 import { createChat, banter, type ChatMsg } from './chat';
 import type { Stage } from './scene/stage';
@@ -92,6 +94,8 @@ app.innerHTML = `
   <div id="hand" aria-label="你的手牌"></div>
 </section>
 <footer class="foot" id="footer-state">纯娱乐积分 · 不涉及现金</footer>
+<aside id="teammate-hands" class="teammate-hands glass" hidden></aside>
+<section id="rps-arena" class="rps-arena" hidden></section>
 <section id="tribute-choice" class="tribute-choice glass" aria-label="贡牌预选" hidden></section>
 <div class="turn-banner" id="turn-banner" role="status" aria-live="polite"></div>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -220,13 +224,21 @@ $('#history').onclick = () => { const s = state(); if (!s) return; modal(`<div c
 
 // ---------- rendering ----------
 const owesReturn = (s: GameView, seat: number) => s.status === 'tribute' && !s.tribute?.selection && !!s.tribute?.transfers.some(t => t.to === seat && !t.returned);
+let showTeammateHands=false;
+function renderTeammateHands(s:GameView){
+ const panel=$('#teammate-hands'),hands=s.teammateHands||[];panel.hidden=!hands.length;if(!hands.length){showTeammateHands=false;return;}
+ panel.innerHTML=`<button type="button" id="teammate-toggle" aria-expanded="${showTeammateHands}">${showTeammateHands?'收起':'查看'}队友手牌 · ${hands.length} 人</button>${showTeammateHands?`<p>你已出完 · 仅可查看本队手牌，实时更新</p>${hands.map(player=>`<section><b>${escape(playerName(player.seat))} · ${player.hand.length} 张</b><div class="observed-hand">${player.hand.map(card=>`<span class="observed-card ${red(card)?'red':''}" aria-label="${SUIT_NAMES[card.suit]}${rankLabel(card.rank)}"><b>${rankLabel(card.rank)}</b><span class="suit-icon">${suitSvg(card.suit)}</span></span>`).join('')}</div></section>`).join('')}`:''}`;
+ $('#teammate-toggle').onclick=()=>{showTeammateHands=!showTeammateHands;renderTeammateHands(state()!);};
+}
 let tributeDraft=new Set<number>(),tributeDraftKey='';
+const rpsPanel=createRpsPanel($('#rps-arena'),{name:playerName,face:seat=>faceImg(seatAvatar(seat)??DEFAULT_AVATAR,'mid'),send:action=>void sendTributeChoice(action),busy:()=>busy});
 function renderTributeChoice(s:GameView){
   const panel=$('#tribute-choice'),selection=s.status==='tribute'?s.tribute?.selection:null;
-  panel.hidden=!selection;$('#turn-banner').hidden=!!selection;
-  if(!selection)return;
-  const quota=selection.quotas[s.seat]||0,locked=selection.locked.includes(s.seat),duel=selection.duel;
-  const key=`${s.round}:${s.seat}:${JSON.stringify(selection.choices[s.seat]||[])}:${locked}:${duel?.id||0}`;
+  rpsPanel.render(s);
+  panel.hidden=!selection||!!selection.duel;$('#turn-banner').hidden=!!selection;
+  if(!selection||selection.duel){panel.innerHTML='';return;}
+  const quota=selection.quotas[s.seat]||0,locked=selection.locked.includes(s.seat);
+  const key=`${s.round}:${s.seat}:${JSON.stringify(selection.choices[s.seat]||[])}:${locked}:0`;
   if(key!==tributeDraftKey){tributeDraftKey=key;tributeDraft=new Set(selection.choices[s.seat]||[]);}
   const conflicts=tributeConflicts(selection),opponents=conflicts.filter(pair=>pair.includes(s.seat)).map(pair=>pair.find(who=>who!==s.seat)!);
   const reserved=new Set(selection.locked.filter(who=>who!==s.seat).flatMap(who=>selection.choices[who]));
@@ -234,15 +246,15 @@ function renderTributeChoice(s:GameView){
   panel.innerHTML=`<h3>贡牌池 · 双方预选</h3><p>${quota?`你可选 ${quota} 张；双方无冲突才分牌`:'等待受贡者选牌；预选完成后开始还贡'}</p>
     <div class="tribute-pool">${s.tribute!.transfers.map((t,i)=>{
       const picked=Object.entries(selection.choices).filter(([,cards])=>cards.includes(i)).map(([who])=>playerName(Number(who)));
-      return `<button class="tribute-card ${t.card&&red(t.card)?'red':''} ${tributeDraft.has(i)?'selected':''} ${picked.length>1?'conflict':''}" data-tribute-card="${i}" aria-pressed="${tributeDraft.has(i)}" ${!quota||locked||duel||reserved.has(i)||busy?'disabled':''}><b>${t.card?label(t.card):'牌背'}</b><small>${escape(playerName(t.from))} 交出</small><small>${picked.length?escape(picked.join('、'))+' 预选':'尚未预选'}</small></button>`;
+      return `<button class="tribute-card ${t.card&&red(t.card)?'red':''} ${tributeDraft.has(i)?'selected':''} ${picked.length>1?'conflict':''}" data-tribute-card="${i}" aria-pressed="${tributeDraft.has(i)}" ${!quota||locked||reserved.has(i)||busy?'disabled':''}><b>${t.card?`<span class="suit-icon">${suitSvg(t.card.suit)}</span>${rankLabel(t.card.rank)}`:'牌背'}</b>${t.card?`<em class="suit-name">${SUIT_NAMES[t.card.suit]}</em>`:''}<small>${escape(playerName(t.from))} 交出</small><small>${picked.length?escape(picked.join('、'))+' 预选':'尚未预选'}</small></button>`;
     }).join('')}</div>
-    <p class="tribute-status" role="status">${duel?`猜拳第 ${duel.round} 轮 · ${duel.players.map(who=>escape(playerName(who))).join(' 对 ')}${duel.submitted.includes(s.seat)?' · 你已出拳，等待对方':''}`:conflicts.length?'选牌有冲突：双方可改选，或发起猜拳':locked?'猜拳胜出，你的预选已锁定':quota?`已选 ${tributeDraft.size}/${quota} 张${selection.choices[s.seat]?.length===quota?' · 已提交，可修改预选':''}`:'等待双方提交预选'}</p>
+    <p class="tribute-status" role="status">${conflicts.length?'选牌有冲突：双方可改选，或发起猜拳':locked?'猜拳胜出，你的预选已锁定':quota?`已选 ${tributeDraft.size}/${quota} 张${selection.choices[s.seat]?.length===quota?' · 已提交，可修改预选':''}`:'等待双方提交预选'}</p>
     ${last?`<p class="rps-result">${last.players.map((who,i)=>`${escape(playerName(who))}：${rpsLabel(last.moves[i])}`).join(' · ')} · ${last.winner===null?'平手，再来一轮':escape(playerName(last.winner))+' 胜出，保留预选'}</p>`:''}
-    <div class="tribute-controls">${duel?duel.players.includes(s.seat)?(['rock','scissors','paper'] as const).map(move=>`<button class="btn ghost" data-rps="${move}" ${busy||duel.submitted.includes(s.seat)?'disabled':''}>${rpsLabel(move)}</button>`).join(''):'<span>等待双方猜拳</span>':`${quota&&!locked?`<button class="btn lacquer" id="tribute-confirm" ${busy||tributeDraft.size!==quota?'disabled':''}>提交预选 ${tributeDraft.size}/${quota}</button>`:''}${opponents.map(who=>`<button class="btn ghost" data-rps-start="${who}" ${busy?'disabled':''}>与${escape(playerName(who))}猜拳</button>`).join('')}`}</div>`;
+    <div class="tribute-controls">${quota&&!locked?`<button class="btn lacquer" id="tribute-confirm" ${busy||tributeDraft.size!==quota?'disabled':''}>提交预选 ${tributeDraft.size}/${quota}</button>`:''}${opponents.map(who=>`<button class="btn ghost" data-rps-start="${who}" ${busy?'disabled':''}>与${escape(playerName(who))}猜拳</button>`).join('')}</div>`;
   panel.querySelectorAll<HTMLButtonElement>('[data-tribute-card]').forEach(button=>button.onclick=()=>{const i=Number(button.dataset.tributeCard);tributeDraft.has(i)?tributeDraft.delete(i):tributeDraft.add(i);render();});
   const confirm=panel.querySelector<HTMLButtonElement>('#tribute-confirm');if(confirm)confirm.onclick=()=>void sendTributeChoice({kind:'select',cards:[...tributeDraft]});
   panel.querySelectorAll<HTMLButtonElement>('[data-rps-start]').forEach(button=>button.onclick=()=>void sendTributeChoice({kind:'rps-start',opponent:Number(button.dataset.rpsStart)}));
-  panel.querySelectorAll<HTMLButtonElement>('[data-rps]').forEach(button=>button.onclick=()=>void sendTributeChoice({kind:'rps',move:button.dataset.rps as RpsMove,round:duel!.round,duelId:duel!.id}));
+
 }
 async function sendTributeChoice(action:TributeAction){
   const s=state();if(!s||busy)return;busy=true;render();
@@ -272,9 +284,9 @@ function render() {
   const identityPlay = [...s.log].reverse().find(line => /^\d号位 · /.test(line) && /♠A|♠3/.test(line));
   $('#identity-played').textContent = identityPlay ? identityPlay.replace(/^(\d)号位 · /, (_, seat) => `${playerName(Number(seat))} 已打出：`) : '';
   $('#me').innerHTML = `${faceImg(seatAvatar(s.seat) ?? DEFAULT_AVATAR, 'mid')}<div class="seal-id ${s.ownIdentity === '农民方' ? 'farmer' : 'a3'}">${s.ownIdentity === '独食' ? '独食' : s.ownIdentity === 'A3方' ? 'A3' : '农'}</div><div><b>${escape(playerName(s.seat))}<small>${s.ownIdentity}</small>${s.round > 1 || s.status === 'finished' ? `<small class="total ${s.totals[s.seat] > 0 ? 'up' : s.totals[s.seat] < 0 ? 'down' : ''}">累计 ${signed(s.totals[s.seat])}</small>` : ''}</b><span>${me.rank ? `第 ${me.rank} 名` : `手牌 ${s.hand.length} 张`}${(s.turn === s.seat && s.status === 'playing') || owe ? ` · <em>${owe ? '请还贡' : '轮到你'}</em>` : ''}</span></div>`;
-  $('#hand').innerHTML = s.hand.map(c => `<button class="card ${isIdentity(c) ? 'identity-card' : ''} ${red(c) ? 'red' : ''} ${selected.has(id(c)) ? 'selected' : ''}" data-card="${id(c)}" aria-label="${label(c)}" aria-pressed="${selected.has(id(c))}"><b>${rankLabel(c.rank)}</b><span>${suits[c.suit]}</span></button>`).join('');
+  $('#hand').innerHTML = s.hand.map(c => `<button class="card ${isIdentity(c) ? 'identity-card' : ''} ${red(c) ? 'red' : ''} ${selected.has(id(c)) ? 'selected' : ''}" data-card="${id(c)}" aria-label="${label(c)}" aria-pressed="${selected.has(id(c))}"><b>${rankLabel(c.rank)}</b><span class="suit-icon" title="${SUIT_NAMES[c.suit]}">${suitSvg(c.suit)}</span></button>`).join('');
   document.querySelectorAll<HTMLButtonElement>('[data-card]').forEach(b => b.onclick = () => toggleCard(b.dataset.card!));
-  $('#trick').innerHTML = s.last ? `<small>${escape(playerName(s.last.seat))} · ${classify(s.last.cards)!.kind}</small><div>${s.last.cards.map(c => `<span class="mini-card ${red(c) ? 'red' : ''}">${rankLabel(c.rank)}<i>${suits[c.suit]}</i></span>`).join('')}</div>` : '';
+  $('#trick').innerHTML = s.last ? `<small>${escape(playerName(s.last.seat))} · ${classify(s.last.cards)!.kind}</small><div>${s.last.cards.map(c => `<span class="mini-card ${red(c) ? 'red' : ''}">${rankLabel(c.rank)}<i class="suit-icon">${suitSvg(c.suit)}</i></span>`).join('')}</div>` : '';
   const waiting = remote?.roomStatus === 'waiting', myTurn = s.turn === s.seat && s.status === 'playing' && !waiting;
   const banner = $('#turn-banner');
   const waitingFor = s.tribute?.transfers.filter(t => !t.returned).map(t => playerName(t.to)).filter((v, i, a) => a.indexOf(v) === i).join('、');
@@ -282,7 +294,7 @@ function render() {
     : tributing ? (owe ? `还贡：还给 ${escape(playerName(pendingT!.from))} · 待还 ${s.pendingReturns} 张` : `进贡环节 · 等待 ${escape(waitingFor || '')} 还贡`)
     : s.status === 'finished' ? '本局结束，山水有相逢' : myTurn ? (s.first ? '轮到你，首手须含 ♦4' : s.last ? '轮到你，压过上家或过牌' : '轮到你，自由领出') : `${escape(playerName(s.turn))} 正在思考…`;
   banner.classList.toggle('mine', myTurn || owe); banner.classList.add('show');
-  renderTributeChoice(s);
+  renderTributeChoice(s);renderTeammateHands(s);
   const canAct = (myTurn || owe) && !busy;
   $('#play-label').textContent = tributing ? '确认还贡' : '出牌';
   $<HTMLButtonElement>('#play').disabled = !canAct; $<HTMLButtonElement>('#pass').disabled = !myTurn || !s.last || busy; $<HTMLButtonElement>('#hint').disabled = !canAct;
@@ -624,7 +636,7 @@ $('#hint').onclick = () => {
   selected = new Set(moves[hintIndex++ % moves.length].map(id)); sound.select(true); render();
 };
 addEventListener('keydown', e => {
-  if ((e.target as HTMLElement).closest('input,dialog[open]') || !state()) return;
+  if ((e.target as HTMLElement).closest('input,select,dialog[open],#rps-arena,#tribute-choice') || rpsPanel.isOpen() || !state()) return;
   const btn = (s: string) => { const b = $<HTMLButtonElement>(s); if (!b.disabled) b.click(); };
   if (e.key === ' ' || e.key === 'Enter') { if ((e.target as HTMLElement).tagName === 'BUTTON' && e.key === 'Enter') return; e.preventDefault(); btn('#play'); }
   else if (e.key.toLowerCase() === 'p') btn('#pass');

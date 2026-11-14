@@ -48,7 +48,8 @@ test('小程序贡牌池：预选冲突、发起猜拳、隐藏手势、胜者�
   page.chooseTribute({currentTarget:{dataset:{index:0}}});page.chooseTribute({currentTarget:{dataset:{index:1}}});expect(page.data.choiceCanConfirm).toBe(true);
   await page.choiceAction({kind:'select',cards:[0,1]});expect(page.data.choiceOpponents).toEqual([{seat:1,name:'玩家1'}]);
   await page.choiceAction({kind:'rps-start',opponent:1});const duel=g.tribute!.selection!.duel!;
-  await page.choiceAction({kind:'rps',move:'rock',round:1,duelId:duel.id});expect(page.data.choiceDuel.submitted).toBe(true);expect(page.data.choiceDuel.canMove).toBe(false);expect(page.data.choiceResult).toBe('');
+  expect(page.data.choiceDuel.canConfirm).toBe(false);page.rps({currentTarget:{dataset:{move:'rock'}}});expect(g.tribute!.selection!.duel!.moves[0]).toBeUndefined();expect(page.data.choiceDuel.canConfirm).toBe(true);
+  await page.confirmRps();expect(page.data.choiceDuel.submitted).toBe(true);expect(page.data.choiceDuel.canMove).toBe(false);expect(page.data.choiceResult).toBe('');
   apply(1,{kind:'rps',move:'scissors',round:1,duelId:duel.id});page.enter(remote());expect(page.data.choiceLocked).toBe(true);expect(page.data.choiceResult).toContain('玩家0 胜出');
   apply(1,{kind:'select',cards:[2,3]});page.enter(remote());expect(page.data.choiceStage).toBe(false);expect(page.data.message).toContain('待回 2 张');page.onUnload();
 });

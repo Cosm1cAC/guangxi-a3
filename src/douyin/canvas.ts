@@ -3,6 +3,7 @@ import {BOT_AVATARS,DEFAULT_AVATAR,headPixels,normalizeAvatar} from '../core/ava
 import {miniText} from '../../miniprogram/presentation';
 import {DouyinGame,type GameServices} from './controller';
 import {RULE_PAGES} from './rules';
+import {SUIT_GLYPHS,SUIT_NAMES,RPS_GLYPHS,HAND_PALETTE,pixelRects} from '../visual/pixel-art';
 import {MUSIC_TRACKS,musicTime,type MusicPlayer,type PlayMode} from '../core/music';
 import {createNativeMusicPlayer} from '../core/native-music';
 
@@ -160,10 +161,12 @@ export class CanvasGame {
         s.tribute!.transfers.forEach((t,index)=>{
           const owners=Object.entries(choice.choices).filter(([,cards])=>cards.includes(index)).map(([who])=>this.game.name(Number(who))).join('、');
           const locked=choice.locked.some(who=>who!==s.seat&&choice.choices[who].includes(index));
-          this.button('pool-'+index,`${t.card?label(t.card):'牌背'} · ${owners||this.game.name(t.from)+'交出'}`,16+(index%2)*182,y+Math.floor(index/2)*58,176,()=>this.game.choosePool(index),this.game.selectedPool.has(index),this.game.canAct&&!locked,48);
+          this.button('pool-'+index,`${t.card?SUIT_NAMES[t.card.suit]+rankLabel(t.card.rank):'牌背'} · ${owners||this.game.name(t.from)+'交出'}`,16+(index%2)*182,y+Math.floor(index/2)*58,176,()=>this.game.choosePool(index),this.game.selectedPool.has(index),this.game.canAct&&!locked,48);
         });y+=Math.ceil(s.tribute!.transfers.length/2)*58;
         if(choice.duel){const duel=choice.duel;this.text(duel.submitted.includes(s.seat)?'你已出拳，等待对方':'双方提交后才公开手势',16,y,12);y+=30;
-          (['rock','scissors','paper'] as const).forEach((move,i)=>this.button('rps-'+move,rpsLabel(move),16+i*122,y,114,()=>this.game.rps(move),false,duel.players.includes(s.seat)&&!duel.submitted.includes(s.seat)&&!this.game.busy));y+=70;
+          const canChoose=duel.players.includes(s.seat)&&!duel.submitted.includes(s.seat)&&!this.game.busy;
+          (['rock','scissors','paper'] as const).forEach((move,i)=>{const x=16+i*122;this.button('rps-'+move,rpsLabel(move),x,y+68,114,()=>this.game.rps(move),this.game.rpsDraft===move,canChoose,42);this.box(x,y,114,64,this.game.rpsDraft===move?'#b1c591':'#8b8b8b','#e5e9dc');this.pixel(RPS_GLYPHS[move],HAND_PALETTE,x+33,y+5,3);});y+=124;
+          this.button('rps-confirm',duel.submitted.includes(s.seat)?'已出拳，等待对方':this.game.rpsDraft?'确认出拳 · '+rpsLabel(this.game.rpsDraft):'请先选择手势',16,y,358,()=>void this.game.confirmRps(),true,canChoose&&!!this.game.rpsDraft);y+=70;
         }else{
           if(choice.quotas[s.seat]&&!choice.locked.includes(s.seat)){this.button('choose-submit','提交预选',16,y,358,()=>void this.game.submit(),true,this.game.canPlay);y+=70;}
           for(const pair of tributeConflicts(choice).filter(pair=>pair.includes(s.seat))){const opponent=pair.find(who=>who!==s.seat)!;this.button('duel-'+opponent,'与'+this.game.name(opponent)+'猜拳',16,y,358,()=>void this.game.choiceAction({kind:'rps-start',opponent}),false,!this.game.busy);y+=70;}
@@ -171,6 +174,8 @@ export class CanvasGame {
       }
       const contest=s.status==='tribute'?s.tribute?.contests.at(-1):null;
       if(contest)y=this.note(contest.players.map((who,i)=>this.game.name(who)+':'+rpsLabel(contest.moves[i])).join(' · ')+' · '+(contest.winner===null?'平手重猜':this.game.name(contest.winner)+'胜出'),y);
+      if((s.teammateHands||[]).length){this.button('teammates',(this.game.showTeammates?'收起':'查看')+'队友手牌',16,y,358,()=>this.game.toggleTeammates(),true);y+=70;
+        if(this.game.showTeammates){for(const player of s.teammateHands||[]){this.text(this.game.name(player.seat)+' · '+player.hand.length+' 张',16,y,13,colors.accent);y+=28;player.hand.forEach((card,index)=>{const x=16+(index%7)*52,row=y+Math.floor(index/7)*73;this.box(x,row,46,64,'#f0f0dd','#adb99e');const color=card.suit===0||card.suit===2?colors.red:colors.bg;this.text(rankLabel(card.rank),x+6,row+7,17,color);this.pixel(SUIT_GLYPHS[card.suit],{'#':color},x+20,row+36,2);});y+=Math.ceil(player.hand.length/7)*73+12;}}}
       this.text(miniText(s.ownIdentity)+' · '+(this.game.remote?'好友房':'机器人练习'),16,y,12,colors.muted);
       this.text(s.status==='tribute'?'回牌禁选 ♠A、♠3、♦4':'点选手牌后出牌',374,y,11,colors.muted,'right');y+=32;
       const rows=Math.ceil(s.hand.length/7);
@@ -194,10 +199,11 @@ export class CanvasGame {
     }
     this.button('privacy','隐私说明',131,y,128,()=>this.open('privacy'),false,true,44);return y+52;
   }
+  private pixel(rows:string[],palette:Record<string,string>,x:number,y:number,scale:number){for(const p of pixelRects(rows,palette))this.rect(x+p.x*scale,y+p.y*scale,scale,scale,p.color);}
   private card(card:Card,x:number,y:number){
     const selected=this.game.selected.has(id(card));if(selected)y-=6;this.box(x,y,46,69,selected?'#e2efbb':'#f0f0dd',selected?'#96cc68':'#adb99e');
     if(isIdentity(card)){this.ctx.strokeStyle='#d0b36c';this.ctx.lineWidth=2;this.ctx.strokeRect(x+4,y+4,38,61);}
-    const color=card.suit===0||card.suit===2?colors.red:colors.bg;this.text(rankLabel(card.rank),x+6,y+8,18,color);this.text(suits[card.suit],x+37,y+43,20,color,'right');
+    const color=card.suit===0||card.suit===2?colors.red:colors.bg;this.text(rankLabel(card.rank),x+6,y+8,18,color);this.pixel(SUIT_GLYPHS[card.suit],{'#':color},x+22,y+39,2);
     this.targets.push({x,y,w:46,h:69,key:'card:'+id(card),action:()=>this.game.select(id(card))});
   }
   private drawRules(y:number){

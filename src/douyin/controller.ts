@@ -19,6 +19,8 @@ export class DouyinGame {
   selected=new Set<string>();
   selectedPool=new Set<number>();
   private poolKey='';
+  rpsDraft:RpsMove|null=null;private rpsKey='';
+  showTeammates=false;
   busy=false;error='';hidden=false;
   changed=()=>{};
   private timer:ReturnType<typeof setTimeout>|undefined;
@@ -45,13 +47,15 @@ export class DouyinGame {
   }
   get heldIdentity(){return this.state?.hand.filter(isIdentity).map(label).join('、')||'';}
   get playedIdentity(){return this.state?.log.slice().reverse().find(line=>/^\d号位 · /.test(line)&&/♠A|♠3/.test(line))?.replace(/^(\d)号位 · /,(_,seat)=>`${this.name(Number(seat))} 已打出：`)||'';}
-  private notify(){const s=this.state,c=this.choosing;if(s&&c){const key=JSON.stringify([s.round,s.seat,c.choices[s.seat]||[],c.locked,c.duel?.id||0]);if(key!==this.poolKey){this.poolKey=key;this.selectedPool=new Set(c.choices[s.seat]||[]);}}this.changed();}
+  private notify(){const s=this.state,c=this.choosing;const key=c?.duel?`${s!.round}:${c.duel.id}:${c.duel.round}`:'';if(key!==this.rpsKey){this.rpsKey=key;this.rpsDraft=null;}if(!(s?.teammateHands||[]).length)this.showTeammates=false;if(s&&c){const key=JSON.stringify([s.round,s.seat,c.choices[s.seat]||[],c.locked,c.duel?.id||0]);if(key!==this.poolKey){this.poolKey=key;this.selectedPool=new Set(c.choices[s.seat]||[]);}}this.changed();}
   choosePool(index:number){const s=this.state,c=this.choosing;if(!s||!c||!this.canAct||c.locked.some(who=>who!==s.seat&&c.choices[who].includes(index)))return;this.selectedPool.has(index)?this.selectedPool.delete(index):this.selectedPool.add(index);this.notify();}
   async choiceAction(action:TributeAction){const s=this.state;if(!s||this.busy)return;this.busy=true;this.notify();try{
     if(this.remote)this.remote=await this.services.request(`/rooms/${this.remote.room}/tribute-choice`,{version:s.version,round:s.round,action},this.session!.token);
     else if(this.local){const result=tributeAction(this.local,s.seat,action);if(!result.ok)throw Error(result.error);this.local=result.state;}
   }catch(e){this.error=miniText(e instanceof Error?e.message:String(e));}finally{this.busy=false;this.notify();this.bot();}}
-  rps(move:RpsMove){const duel=this.choosing?.duel;if(duel)void this.choiceAction({kind:'rps',move,round:duel.round,duelId:duel.id});}
+  rps(move:RpsMove){const s=this.state,duel=this.choosing?.duel;if(!s||!duel||!duel.players.includes(s.seat)||duel.submitted.includes(s.seat)||this.busy)return;this.rpsDraft=move;this.notify();}
+  async confirmRps(){const s=this.state,duel=this.choosing?.duel;if(!s||!duel||!this.rpsDraft||duel.submitted.includes(s.seat)||this.busy)return;await this.choiceAction({kind:'rps',move:this.rpsDraft,round:duel.round,duelId:duel.id});}
+  toggleTeammates(){this.showTeammates=!this.showTeammates;this.notify();}
   private stop(){clearTimeout(this.timer);clearInterval(this.poll);this.timer=undefined;this.poll=undefined;this.generation++;}
   practice(){this.stop();this.remote=null;this.services.remove('a3-douyin-room');this.local=createGame();this.selected.clear();this.error='';this.notify();this.bot();}
   select(key:string){if(this.selected.has(key))this.selected.delete(key);else{if(this.state?.status==='tribute')this.selected.clear();this.selected.add(key);}this.notify();}
