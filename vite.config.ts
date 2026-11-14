@@ -1,0 +1,3 @@
+import { defineConfig } from 'vite';
+// xfwd：把真实客户端 IP 传给 API，局域网内多台设备各自计入限流，而不是全部算作 127.0.0.1。
+export default defineConfig({plugins:[{name:'download-directory-index',configureServer(server){server.middlewares.use((req,res,next)=>{const path=req.url?.split('?')[0];if(path==='/download'){res.writeHead(302,{Location:'/download/'});res.end();return;}if(path==='/download/')req.url=req.url!.replace('/download/','/download/index.html');next();});}}],server:{proxy:{'/api':{target:`http://127.0.0.1:${process.env.A3_API_PORT || 3001}`,xfwd:true}}},build:{rollupOptions:{output:{manualChunks:{three:['three']}}}}});

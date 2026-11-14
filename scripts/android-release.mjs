@@ -1,0 +1,11 @@
+import {readFileSync,writeFileSync,statSync,copyFileSync,mkdirSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+const repository='Cosm1cAC/guangxi-a3';
+const gradle=readFileSync('android/app/build.gradle','utf8');
+const version=gradle.match(/versionName "([^"]+)"/)[1];
+const file=`release/shanshui-a3-${version}.apk`,bytes=readFileSync(file);
+const sha256=createHash('sha256').update(bytes).digest('hex');
+const metadata={version,bytes:bytes.length,sha256,publishedAt:statSync(file).mtime.toISOString(),downloadUrl:`https://github.com/${repository}/releases/download/v${version}/shanshui-a3.apk`,releaseUrl:`https://github.com/${repository}/releases/tag/v${version}`};
+mkdirSync('public/download',{recursive:true});writeFileSync('public/download/release.json',JSON.stringify(metadata,null,2)+'\n');
+copyFileSync(file,'release/shanshui-a3.apk');writeFileSync('release/shanshui-a3.apk.sha256',`${sha256}  shanshui-a3.apk\n`);
+console.log(JSON.stringify(metadata,null,2));

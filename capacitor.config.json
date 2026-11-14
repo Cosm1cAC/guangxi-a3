@@ -1,0 +1,18 @@
+{
+  "appId": "cloud.vibelink.a3",
+  "appName": "山水尖3",
+  "webDir": "dist-app",
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#7fb6ee"
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "disable"
+    }
+  }
+}

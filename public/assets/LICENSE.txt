@@ -1,0 +1,5 @@
+The card faces, card back, drum emblem and procedural scene in this project
+were created for this project. No third-party bitmap or 3D model is used.
+You may use, modify and redistribute these generated assets with this game.
+System fonts are referenced, not redistributed.
+Three.js and threejs-miniprogram retain their own MIT licenses.

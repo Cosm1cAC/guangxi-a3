@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.json","include":["miniprogram/**/*.ts","src/core/**/*.ts","src/visual/**/*.ts"],"exclude":["node_modules"]}

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <title>进入山水尖3</title>
+  <style>
+    html{color-scheme:dark;background:#173f48;color:#eef0df;font:16px/1.7 system-ui,sans-serif}
+    body{max-width:28rem;margin:18vh auto;padding:24px;text-align:center}
+    h1{font:32px serif;color:#e4c88b}p{margin:20px 0}button,a{font:inherit;color:#173f48;background:#e4c88b;border:0;border-radius:6px;padding:10px 24px;text-decoration:none;cursor:pointer}[hidden]{display:none}
+  </style>
+</head>
+<body>
+  <h1>山水尖3</h1>
+  <p id="status" role="status">正在寻找牌桌，即将进入…</p>
+  <button id="retry" hidden>重新连接</button>
+  <noscript>请启用 JavaScript 后重新打开此入口。</noscript>
+  <script>
+    const message=document.querySelector('#status'),retry=document.querySelector('#retry');
+    async function enter(){
+      retry.hidden=true;message.textContent='正在寻找牌桌，即将进入…';
+      try{
+        const response=await fetch('/go/target.json?t='+Date.now(),{cache:'no-store',credentials:'omit',signal:AbortSignal.timeout(15000)});
+        if(!response.ok)throw Error('unavailable');
+        const data=await response.json(),target=new URL(data.url);
+        if(target.protocol!=='https:'||target.username||target.password||target.port||!(/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.cpolar\.(cn|top|io|net|vip|xyz|site|cyou)$/i.test(target.hostname))||/^(www|dashboard)\./i.test(target.hostname))throw Error('invalid');
+        target.pathname='/';target.search=location.search;target.hash=location.hash;
+        location.replace(target.href);
+      }catch{
+        message.textContent='暂时无法连接牌桌，请稍后重试。';retry.hidden=false;
+      }
+    }
+    retry.onclick=enter;enter();
+  </script>
+</body>
+</html>
